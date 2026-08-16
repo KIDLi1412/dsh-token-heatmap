@@ -1,0 +1,11 @@
+# dsh-token-heatmap bundle patch: mounts the server half (incremental token
+# usage aggregation over session event logs + a loopback-only usage endpoint)
+# into the profile composition. The `dsh.client` declaration in package.json
+# makes the browser half (exports "./client", served at
+# /plugins/dsh-token-heatmap/client.js) load in the web GUI.
+#
+# Activate with:
+#   dsh plugin --profile web add link:C:/Projects/DSH/dsh-token-heatmap
+- insert:
+    - id: token-heatmap
+      name: dsh-token-heatmap
