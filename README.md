@@ -38,7 +38,7 @@ dsh plugin --profile web add github:KIDLi1412/dsh-token-heatmap
 本地开发（手动，本地链接）：
 
 ```powershell
-dsh plugin --profile web add "link:C:/Projects/DSH/dsh-token-heatmap"
+dsh plugin --profile web add "link:path/to/dsh-token-heatmap"
 ```
 
 安装完成后**重启正在运行的 `dsh web`**，并在浏览器中硬刷新（Ctrl+Shift+R）。侧边栏无新增入口——统计卡直接出现在新会话输入框下方。卸载：

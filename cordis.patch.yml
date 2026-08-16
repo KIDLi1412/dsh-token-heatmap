@@ -5,7 +5,7 @@
 # /plugins/@kidli1412/dsh-token-heatmap/client.js) load in the web GUI.
 #
 # Activate with:
-#   dsh plugin --profile web add link:C:/Projects/DSH/dsh-token-heatmap
+#   dsh plugin --profile web add link:path/to/dsh-token-heatmap
 #   dsh plugin --profile web add @kidli1412/dsh-token-heatmap   (npm)
 - insert:
     - id: token-heatmap
