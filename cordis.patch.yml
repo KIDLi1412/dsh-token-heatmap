@@ -2,10 +2,11 @@
 # usage aggregation over session event logs + a loopback-only usage endpoint)
 # into the profile composition. The `dsh.client` declaration in package.json
 # makes the browser half (exports "./client", served at
-# /plugins/dsh-token-heatmap/client.js) load in the web GUI.
+# /plugins/@kidli1412/dsh-token-heatmap/client.js) load in the web GUI.
 #
 # Activate with:
 #   dsh plugin --profile web add link:C:/Projects/DSH/dsh-token-heatmap
+#   dsh plugin --profile web add @kidli1412/dsh-token-heatmap   (npm)
 - insert:
     - id: token-heatmap
-      name: dsh-token-heatmap
+      name: '@kidli1412/dsh-token-heatmap'

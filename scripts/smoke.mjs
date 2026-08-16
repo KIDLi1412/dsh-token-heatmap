@@ -89,7 +89,7 @@ const fakeRequire = (name) => {
 	throw new Error(`unexpected require: ${name}`);
 };
 await import(pathToFileURL(join(root, "lib/client.js")).href);
-check("module loader captured", loaded !== null && loaded.id === "dsh-token-heatmap");
+check("module loader captured", loaded !== null && loaded.id === "@kidli1412/dsh-token-heatmap");
 const exports = loaded.factory(fakeRequire);
 check("factory exports buildGrid/levelOf", typeof exports.buildGrid === "function" && typeof exports.levelOf === "function");
 check("apply/inject exported", typeof exports.apply === "function" && Array.isArray(exports.inject));

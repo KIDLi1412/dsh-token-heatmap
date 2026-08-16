@@ -8,6 +8,8 @@ A DeepSeek Harness web plugin: a GitHub-style daily token-usage heatmap of the *
 
 新会话屏幕输入框正下方出现一张统计卡（**只在新会话显示**；已对话的会话不显示）：
 
+![热力图](docs/热力图.jpg)
+
 - 📊 **自然年热力图**：GitHub 风格，覆盖所选自然年 1月–12月（可切换年份，`‹ 年份 ›` 选择器在统计行右侧，最多到当前年），列为周（周一起），行为星期（左侧标注一~日全部 7 天）；顶部月份标签按列跨度标注（左侧与格线对齐），今日之后的日期显示为空格。
 - 🎨 **六套配色**：绿色（经典 GitHub 风格）、蓝色、橙色、红色、紫色、青色，可在 设置 → 插件 → 插件配置 切换；颜色按**绝对阈值**分档（按天 token 数，非相对排名）：0 / <1M / 1M–10M / 10M–100M / ≥100M 共 5 级，图例悬停显示各档范围；61M/天 显示为第 3 级。悬停任意格子显示日期与精确 token 数。
 - 🔢 **统计行**（与标题同一行）：今日 / 本月 / 累计，悬停显示完整数值。
@@ -21,19 +23,19 @@ A DeepSeek Harness web plugin: a GitHub-style daily token-usage heatmap of the *
 
 需要 `web` profile（`@deepseek-ai/dsh >= 0.1.0-rc.6`）与 `pnpm`。
 
+从 npm 安装：
+
+```powershell
+dsh plugin --profile web add @kidli1412/dsh-token-heatmap
+```
+
 从 GitHub 安装：
 
 ```powershell
 dsh plugin --profile web add github:KIDLi1412/dsh-token-heatmap
 ```
 
-方式一（本地开发，推荐，直接运行本目录脚本）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1
-```
-
-方式二（手动，本地链接）：
+本地开发（手动，本地链接）：
 
 ```powershell
 dsh plugin --profile web add "link:C:/Projects/DSH/dsh-token-heatmap"
@@ -42,7 +44,7 @@ dsh plugin --profile web add "link:C:/Projects/DSH/dsh-token-heatmap"
 安装完成后**重启正在运行的 `dsh web`**，并在浏览器中硬刷新（Ctrl+Shift+R）。侧边栏无新增入口——统计卡直接出现在新会话输入框下方。卸载：
 
 ```powershell
-dsh plugin --profile web remove dsh-token-heatmap
+dsh plugin --profile web remove @kidli1412/dsh-token-heatmap
 ```
 
 ## 工作原理 / How it works

@@ -1,5 +1,5 @@
 {
-  "name": "dsh-token-heatmap",
+  "name": "@kidli1412/dsh-token-heatmap",
   "version": "0.1.0",
   "description": "DSH web plugin: GitHub-style daily token-usage heatmap on the new-session screen with a selectable calendar-year view, green/blue color schemes and a display switch (设置 → 插件 → 插件配置), plus today / this-month / all-time totals.",
   "type": "module",
@@ -11,6 +11,7 @@
   },
   "files": [
     "lib",
+    "docs",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"
@@ -29,7 +30,9 @@
     }
   },
   "scripts": {
-    "check": "node --check lib/usage.js && node --check lib/config.js && node --check lib/index.js && node --check lib/client.js"
+    "check": "node --check lib/usage.js && node --check lib/config.js && node --check lib/index.js && node --check lib/client.js",
+    "test": "node scripts/smoke.mjs",
+    "prepublishOnly": "npm run check && npm test"
   },
   "license": "MIT",
   "engines": {
@@ -42,6 +45,9 @@
   "homepage": "https://github.com/KIDLi1412/dsh-token-heatmap#readme",
   "bugs": {
     "url": "https://github.com/KIDLi1412/dsh-token-heatmap/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "dsh",
