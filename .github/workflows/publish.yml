@@ -1,0 +1,55 @@
+# Publish to npm via Trusted Publisher (OIDC) — no npm token stored anywhere.
+#
+# IMPORTANT: the package must already exist on the npm registry before a
+# trusted publisher can be configured. If @kidli1412/dsh-token-heatmap has
+# never been published, publish 0.1.0 once manually first:
+#   npm login && npm publish --access public
+# then configure the trusted publisher on npmjs.com:
+#   package settings → Trusted Publisher → GitHub Actions
+#     Organization or user : KIDLi1412
+#     Repository           : dsh-token-heatmap
+#     Workflow filename    : publish.yml
+#     Allowed actions      : npm publish
+# (or from a terminal: npm trust github @kidli1412/dsh-token-heatmap \
+#    --file publish.yml --repo KIDLi1412/dsh-token-heatmap --allow-publish)
+#
+# The workflow filename here MUST match the value configured on npmjs.com.
+
+name: Publish to npm (Trusted Publisher)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  id-token: write # Required for npm OIDC trusted publishing
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest # GitHub-hosted runner only (self-hosted is unsupported)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false # never cache in release builds
+
+      # The smoke test loads the client bundle factory with a real react
+      # (scripts/smoke.mjs resolves it from the repo's node_modules as a
+      # fallback to the local DSH profiles dir). Install it without touching
+      # package.json/lockfile; it is not part of the published tarball
+      # (files: lib, docs, cordis.patch.yml, README.md, LICENSE).
+      - name: Install react for smoke tests
+        run: npm install --no-save --no-audit --no-fund --no-package-lock react@18.3.1
+
+      # npm publish runs prepublishOnly (npm run check && npm test) first;
+      # provenance attestations are generated automatically by trusted publishing.
+      - name: Publish to npm (OIDC, no token needed)
+        run: npm publish

@@ -13,6 +13,8 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import os from "node:os";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -82,7 +84,17 @@ console.log("client.js");
 globalThis.window = {};
 let loaded = null;
 globalThis.window.__ModuleLoader__ = { load: (spec) => { loaded = spec; } };
-const requireFromProfile = createRequire(pathToFileURL(join(process.env.USERPROFILE ?? "C:\\Users\\me", ".dsh", "profiles", "node_modules", "react", "package.json")));
+// react may live in the DSH profiles dir (local dev, USERPROFILE/homedir) or
+// in this repo's node_modules (CI). Try both so the smoke test runs anywhere.
+const reactCandidates = [
+	join(process.env.USERPROFILE ?? os.homedir(), ".dsh", "profiles", "node_modules", "react", "package.json"),
+	join(root, "node_modules", "react", "package.json")
+].filter(existsSync);
+if (reactCandidates.length === 0) {
+	console.error("react not found (looked in DSH profiles and repo node_modules); run: npm install --no-save react@18.3.1");
+	process.exit(1);
+}
+const requireFromProfile = createRequire(pathToFileURL(reactCandidates[0]));
 const fakeRequire = (name) => {
 	if (name === "react") return requireFromProfile("react");
 	if (name === "react/jsx-runtime") return requireFromProfile("react/jsx-runtime");
