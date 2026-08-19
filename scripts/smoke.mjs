@@ -13,7 +13,6 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
 import os from "node:os";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -128,6 +127,36 @@ check("palettes are pairwise distinct", (() => {
 })());
 check("CELL_COLORS aliases green", exports.CELL_COLORS === exports.COLOR_SCHEMES.green);
 
+// ---- createConfigStore (settings-scope backed) -------------------------
+function createMockScope(initial) {
+	const listeners = new Set();
+	let snapshot = initial;
+	return {
+		getSnapshot: () => snapshot,
+		subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+		set: async (field, value) => {
+			snapshot = { ...snapshot, value: { ...(snapshot.value ?? {}), [field]: value } };
+			for (const l of listeners) l();
+		},
+		publish: (next) => { snapshot = next; for (const l of listeners) l(); }
+	};
+}
+const mock = createMockScope({ status: "loading", value: void 0, writable: false, mode: "host" });
+const store = exports.createConfigStore(mock);
+check("store loading → defaults", store.getSnapshot().enabled === true && store.getSnapshot().colorScheme === "green", JSON.stringify(store.getSnapshot()));
+mock.publish({ status: "ready", value: { enabled: false, colorScheme: "purple" }, writable: true, mode: "host" });
+check("store ready → resolved values", store.getSnapshot().enabled === false && store.getSnapshot().colorScheme === "purple", JSON.stringify(store.getSnapshot()));
+mock.publish({ status: "unavailable", value: void 0, writable: false, mode: "host" });
+check("store unavailable → defaults", store.getSnapshot().enabled === true && store.getSnapshot().colorScheme === "green", JSON.stringify(store.getSnapshot()));
+mock.publish({ status: "ready", value: { enabled: true, colorScheme: "green" }, writable: true, mode: "host" });
+await store.set({ enabled: false });
+check("store set writes through the scope", mock.getSnapshot().value.enabled === false);
+await store.set({ colorScheme: "blue" });
+check("store set writes scheme through the scope", mock.getSnapshot().value.colorScheme === "blue");
+await store.set({ colorScheme: "   " });
+check("blank scheme sanitized to default", mock.getSnapshot().value.colorScheme === "green");
+store.dispose();
+
 // Absolute color thresholds (per-day tokens).
 check("levelOf absolute buckets", exports.levelOf(0) === 0 && exports.levelOf(5e5) === 1 && exports.levelOf(5e6) === 2 && exports.levelOf(61e6) === 3 && exports.levelOf(2e8) === 4, `got ${exports.levelOf(61e6)}`);
 
@@ -187,17 +216,41 @@ check("past-year months Jan..Dec of that year", pastGrid.monthStarts.length === 
 // ----------------------------------------------------------- server config route
 console.log("server config route");
 import { EventEmitter } from "node:events";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { readFileSync } from "node:fs";
 const dshHome = mkdtempSync(join(tmpdir(), "thm-config-"));
 process.env.DSH_HOME = dshHome;
 const server = await import(pathToFileURL(join(root, "lib/index.js")).href);
 const routes = [];
+// Minimal in-memory settings service mirroring the provider contract the
+// plugin relies on: register/get/describe/update, with schema resolution.
+const settingsSections = new Map();
 const serverCtx = {
 	logger: { warn: () => {} },
 	effect: (fn) => fn(),
-	webServer: { register: (route) => routes.push(route) }
+	webServer: { register: (route) => routes.push(route) },
+	settings: {
+		register: (ns, schema) => { settingsSections.set(ns, { schema, user: void 0 }); },
+		get: (ns) => {
+			const entry = settingsSections.get(ns);
+			if (entry === void 0) return void 0;
+			return entry.schema({ ...(entry.user ?? {}) });
+		},
+		describe: () => [...settingsSections.entries()].map(([ns, entry]) => ({
+			ns,
+			schema: null,
+			value: entry.schema({ ...(entry.user ?? {}) }),
+			revision: 0,
+			user: entry.user
+		})),
+		update: async (ns, patch) => {
+			const entry = settingsSections.get(ns);
+			if (entry === void 0) throw new Error(`unregistered namespace ${ns}`);
+			const next = { ...(entry.user ?? {}), ...patch };
+			entry.schema(next); // validate: throws on malformed writes
+			entry.user = next;
+		}
+	}
 };
 server.apply(serverCtx);
 const configRoute = routes.find((route) => route.path === server.CONFIG_PATH);
@@ -233,7 +286,9 @@ res = makeRes();
 await configRoute.handler(makeReq("GET"), res);
 const second = JSON.parse(res.body);
 check("GET config → persisted values", second.ok === true && second.enabled === false && second.colorScheme === "blue", JSON.stringify(second));
-check("config file written under DSH_HOME", readFileSync(join(dshHome, "storages", "token-heatmap-config.json"), "utf8").includes('"colorScheme": "blue"'));
+const storedSection = settingsSections.get(server.SETTINGS_NAMESPACE).user;
+check("settings section updated (not the legacy file)", JSON.stringify(storedSection) === JSON.stringify({ enabled: false, colorScheme: "blue" }), JSON.stringify(storedSection));
+check("legacy config file absent after settings-backed write", !existsSync(join(dshHome, "storages", "token-heatmap-config.json")));
 res = makeRes();
 await configRoute.handler(makeReq("DELETE"), res);
 check("POST-only fence → 405 on DELETE", res.status === 405);
@@ -249,6 +304,30 @@ res = makeRes();
 await configRoute.handler(makeReq("POST", JSON.stringify({ enabled: "yes", colorScheme: "rainbow" })), res);
 const coerced = JSON.parse(res.body);
 check("write preserves unknown scheme", coerced.ok === true && coerced.enabled === true && coerced.colorScheme === "rainbow", JSON.stringify(coerced));
+
+// ---- legacy migration --------------------------------------------------
+console.log("legacy config migration");
+const legacyDir = join(dshHome, "storages");
+const legacyFile = join(legacyDir, "token-heatmap-config.json");
+mkdirSync(legacyDir, { recursive: true });
+// 1. Non-default legacy document with no settings section → imported + dropped.
+writeFileSync(legacyFile, JSON.stringify({ enabled: false, colorScheme: "purple" }), "utf8");
+settingsSections.get(server.SETTINGS_NAMESPACE).user = void 0;
+await server.migrateLegacyConfig(serverCtx);
+check("migration imports non-default values", JSON.stringify(settingsSections.get(server.SETTINGS_NAMESPACE).user) === JSON.stringify({ enabled: false, colorScheme: "purple" }), JSON.stringify(settingsSections.get(server.SETTINGS_NAMESPACE).user));
+check("migration removes the legacy file", !existsSync(legacyFile));
+// 2. Defaults-only legacy document → dropped without touching the section.
+writeFileSync(legacyFile, JSON.stringify({ enabled: true, colorScheme: "green" }), "utf8");
+settingsSections.get(server.SETTINGS_NAMESPACE).user = { enabled: false, colorScheme: "blue" };
+await server.migrateLegacyConfig(serverCtx);
+check("migration keeps an existing settings section", JSON.stringify(settingsSections.get(server.SETTINGS_NAMESPACE).user) === JSON.stringify({ enabled: false, colorScheme: "blue" }), JSON.stringify(settingsSections.get(server.SETTINGS_NAMESPACE).user));
+check("migration still drops the file", !existsSync(legacyFile));
+// 3. Corrupt legacy document → dropped, nothing imported.
+writeFileSync(legacyFile, "not json", "utf8");
+settingsSections.get(server.SETTINGS_NAMESPACE).user = void 0;
+await server.migrateLegacyConfig(serverCtx);
+check("migration drops a corrupt document", !existsSync(legacyFile));
+check("migration imports nothing from a corrupt document", settingsSections.get(server.SETTINGS_NAMESPACE).user === void 0);
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

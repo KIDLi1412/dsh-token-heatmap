@@ -17,7 +17,7 @@ A DeepSeek Harness web plugin: a GitHub-style daily token-usage heatmap of the *
 - ⚙️ **插件配置卡**（设置 → 插件 → 插件配置，随官方"插件配置"页签渲染）：
   - **显示热力图** 开关：关闭后新会话页面不再显示热力图卡片。
   - **配色方案**：绿色 / 蓝色 / 橙色 / 红色 / 紫色 / 青色，六个色板按钮即时预览。
-  - 修改后需点"保存"（显示"未保存"徽标提示），"放弃修改"可丢弃草稿；配置经回环端点持久化到 `<DSH_HOME>/storages/token-heatmap-config.json`。
+  - 修改后需点"保存"（显示"未保存"徽标提示），"放弃修改"可丢弃草稿；配置经 `token-heatmap` settings namespace 持久化到 `<DSH_HOME>/settings.yaml`（0.1.1 及更早版本存在 `<DSH_HOME>/storages/token-heatmap-config.json` 的旧配置会在启动时自动迁移）。
 
 ## 安装 / Install
 
@@ -49,8 +49,8 @@ dsh plugin --profile web remove @kidli1412/dsh-token-heatmap
 
 ## 工作原理 / How it works
 
-- **服务端**（`lib/index.js` + `lib/usage.js` + `lib/config.js`）：作为 profile bundle 挂载，增量折叠全部会话事件日志中的 token 用量样本（`assistant/chunk` 的 `usage` 与 `assistant/message` 的 `usage`；同 `(turn, step)` 的重复样本按"替换"语义处理，归属后一天），按天、按模型聚合，缓存到 `<DSH_HOME>/storages/token-heatmap-cache.json`，并通过回环受限端点 `GET /api/token-heatmap/usage` 提供；显示配置（开关 + 配色）经 `GET/POST /api/token-heatmap/config` 读写，持久化到 `<DSH_HOME>/storages/token-heatmap-config.json`。
-- **客户端**（`lib/client.js`）：手写 `__ModuleLoader__` bundle，注册进会话 `conversation.input.dock` 列表插槽，仅当 `session.composerPhase === "blank"`（新会话 hero 屏）且配置开关开启时渲染。框架真正的"卡片下方"插槽 `conversation.composer.dock` 在 hero 屏被 `!hero` 门控禁用，因此本插件利用 `input.dock` 容器（flex 列）的 CSS `order` 把自己排到输入卡片**之后**。配置卡注册进官方 `settings.plugin.item` 插槽（设置 → 插件 → 插件配置页签）；官方 Host 只向 Web 客户端暴露白名单内的设置命名空间，因此本插件不依赖 `settingsScope`，而是直接读写自己的回环配置端点。
+- **服务端**（`lib/index.js` + `lib/usage.js` + `lib/config.js`）：作为 profile bundle 挂载，增量折叠全部会话事件日志中的 token 用量样本（`assistant/chunk` 的 `usage` 与 `assistant/message` 的 `usage`；同 `(turn, step)` 的重复样本按"替换"语义处理，归属后一天），按天、按模型聚合，缓存到 `<DSH_HOME>/storages/token-heatmap-cache.json`，并通过回环受限端点 `GET /api/token-heatmap/usage` 提供；显示配置（开关 + 配色）由插件注册的 `token-heatmap` settings namespace 持有（settings.yaml），`GET/POST /api/token-heatmap/config` 作为回环兼容 API 读写同一 namespace，0.1.1 及更早的 `token-heatmap-config.json` 文档在启动时一次性迁移。
+- **客户端**（`lib/client.js`）：手写 `__ModuleLoader__` bundle，注册进会话 `conversation.input.dock` 列表插槽，仅当 `session.composerPhase === "blank"`（新会话 hero 屏）且配置开关开启时渲染。框架真正的"卡片下方"插槽 `conversation.composer.dock` 在 hero 屏被 `!hero` 门控禁用，因此本插件利用 `input.dock` 容器（flex 列）的 CSS `order` 把自己排到输入卡片**之后**。配置卡注册进官方 `settings.plugin.item` 插槽（设置 → 插件 → 插件配置页签），经 settings scope 读写 `token-heatmap` namespace（该 namespace 由本插件在服务端注册，官方页签只渲染"Host 实际 serve 的 namespace ∩ 已注册 key"的卡片）。
 - 语义与 `dsh-token-meter` 的 `tokenUsage` 投影一致（参考插件 [dsh-usage-stats](https://github.com/Ychris12138/dsh-usage-stats)，MIT）。
 
 ## 说明 / Notes
