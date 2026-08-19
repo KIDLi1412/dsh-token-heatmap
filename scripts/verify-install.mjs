@@ -27,7 +27,12 @@ const check = (name, ok, detail = "") => {
 
 // 1. manifest
 const manifest = JSON.parse(readFileSync(join(profileDir, "package.json"), "utf8"));
-check("manifest dependency", manifest.dependencies?.["@kidli1412/dsh-token-heatmap"] === "link:C:/Projects/DSH/dsh-token-heatmap", manifest.dependencies?.["@kidli1412/dsh-token-heatmap"]);
+// Accept both a local link install (`link:C:/...`) and a registry range
+// (`^0.1.2`, e.g. `dsh plugin add` from npm).
+const thmDep = manifest.dependencies?.["@kidli1412/dsh-token-heatmap"];
+const linked = typeof thmDep === "string" && thmDep.startsWith("link:");
+const fromRegistry = typeof thmDep === "string" && /^[\^~]?\d+\.\d+\.\d+/.test(thmDep);
+check("manifest dependency", linked || fromRegistry, thmDep);
 check("in dsh.profile.bundles", (manifest.dsh?.profile?.bundles ?? []).includes("@kidli1412/dsh-token-heatmap"));
 
 // 2. server-side resolution chain (mirrors ClientModuleRegistry.resolveMeta)
