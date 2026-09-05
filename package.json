@@ -1,6 +1,6 @@
 {
   "name": "@kidli1412/dsh-token-heatmap",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "DSH web plugin: GitHub-style daily token-usage heatmap on the new-session screen with a selectable calendar-year view, green/blue color schemes and a display switch (设置 → 插件 → 插件配置), plus today / this-month / all-time totals.",
   "type": "module",
   "main": "lib/index.js",
@@ -17,8 +17,18 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@deepseek-ai/dsh-settings": "^0.1.2-rc.1",
     "@deepseek-ai/schemastery": "^3.18.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-api-remotes": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-connection": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-locale": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-session": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-session-persistence": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-settings": "^0.1.2-rc.1"
   },
   "dsh": {
     "bundle": {
@@ -49,7 +59,8 @@
   },
   "license": "MIT",
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": "^0.1.2-rc.1"
   },
   "repository": {
     "type": "git",
