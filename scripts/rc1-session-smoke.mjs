@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectUsage } from "../lib/index.js";
+import { collectUsage, apply } from "../lib/index.js";
 
 function localDay(ms) {
 	const d = new Date(ms);
@@ -76,11 +76,11 @@ try {
 	const persistedOk = await collectUsage(rc1WithPersistence);
 	check("persistence without enumeration is tolerated", persistedOk.total === 4200, `total=${persistedOk.total}`);
 
-	// ---- ledger primary source -----------------------------------------
-	// When a DSH usage ledger exists, collectUsage uses it as the primary
-	// source (complete + real-time) instead of the session-event fold, so the
-	// heatmap stays exact across process restarts even when persisted sessions
-	// cannot be enumerated (rc.1).
+	// ---- ledger optional enhancement -----------------------------------
+	// When the @linxin666/dsh-usage ledger exists, collectUsage serves it as
+	// an optional enhancement (complete + real-time) over the session/event
+	// fold, recovering full history even when persisted sessions cannot be
+	// enumerated (rc.1). The file only exists when that plugin is installed.
 	const ledgerHome = mkdtempSync(join(tmpdir(), "thm-ledger-"));
 	process.env.DSH_HOME = ledgerHome;
 	mkdirSync(join(ledgerHome, "dsh-usage"), { recursive: true });
@@ -100,7 +100,7 @@ try {
 	);
 	const ledgerResult = await collectUsage({ get: () => void 0, logger: { warn() {} } });
 	const ledgerDay = ledgerResult.days.find((entry) => entry.date === "2026-01-15");
-	check("ledger is the primary source", ledgerResult.total === 1700, `total=${ledgerResult.total}`);
+	check("ledger optional enhancement served", ledgerResult.total === 1700, `total=${ledgerResult.total}`);
 	check("ledger day total", ledgerDay !== void 0 && ledgerDay.tokens === 1700, JSON.stringify(ledgerDay));
 	check("ledger model attribution", ledgerDay?.models?.[0]?.model === "buddy/deepseek-v4.1-flash");
 	// Without a ledger, collectUsage falls back to the session-event fold and
@@ -110,6 +110,33 @@ try {
 	const fallbackHasLedgerDay = fallbackResult.days.some((entry) => entry.date === "2026-01-15");
 	check("no ledger → fallback does not serve ledger data", !fallbackHasLedgerDay, `days=${fallbackResult.days.map((d) => d.date).join(",")}`);
 	rmSync(ledgerHome, { recursive: true, force: true });
+
+	// ---- session/event real-time fold ---------------------------------
+	// apply() registers a session/event listener that folds each event into
+	// the cache in real time, so live session usage is captured regardless of
+	// hero-screen mounting — the rc.1 primary path that needs no third-party
+	// plugin and no sessionPersistence enumeration.
+	const seHome = mkdtempSync(join(tmpdir(), "thm-se-"));
+	process.env.DSH_HOME = seHome;
+	const seListeners = [];
+	apply({
+		logger: { warn() {} },
+		effect: (fn) => fn(),
+		on: (name, handler) => { seListeners.push({ name, handler }); return () => {}; },
+		get: (n) => (n === "sessions" ? { list: () => [] } : void 0),
+		webServer: { register() {} },
+		settings: { register() {} },
+	});
+	const seListener = seListeners.find((e) => e.name === "session/event");
+	check("session/event listener registered", seListener !== void 0);
+	const seTime = Date.UTC(2026, 0, 20, 10, 0, 0);
+	seListener.handler({ id: "se-s1" }, { seq: 0, time: seTime, type: "assistant/message", data: { turn: 0, step: 0, message: { source: { provider: "buddy", model: "deepseek-v4.1-flash" } }, usage: { inputTokens: 500, outputTokens: 200, cacheReadTokens: 100 } } });
+	await new Promise((r) => setTimeout(r, 50));
+	const seResult = await collectUsage({ get: () => void 0, logger: { warn() {} } });
+	const seDay = seResult.days.find((d) => d.date === "2026-01-20");
+	check("session/event folded into cache", seDay !== void 0 && seDay.tokens === 800, JSON.stringify(seDay));
+	check("session/event model attribution", seDay?.models?.[0]?.model === "buddy/deepseek-v4.1-flash");
+	rmSync(seHome, { recursive: true, force: true });
 } finally {
 	rmSync(tmpHome, { recursive: true, force: true });
 	delete process.env.DSH_HOME;

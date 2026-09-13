@@ -11,7 +11,8 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 ## 结构
 
 - `lib/index.js` — 服务端 half（cordis plugin，`inject: ["webServer","sessions","sessionPersistence","settings"]`）
-  - `collectUsage()`：**优先读 DSH 内置用量台账** `<DSH_HOME>/dsh-usage/usage-ledger.json`（设置→使用统计 数据源，完整实时，`renderLedger()` 转换）；台账缺失时回退到增量折叠 live + persisted 会话事件（`liveSessionEvents()` 双兼容读取；见下）
+  - `apply()`：注册官方 `session/event` 监听器实时折叠每个 usage 事件进缓存（不依赖 hero 屏挂载，绕过 rc.1 枚举限制）；启动时一次性补折叠已存在 live 会话
+  - `collectUsage()`：**主路径=渲染 session/event 实时折叠的缓存**（请求时再做一次 live 增量同步兜底）；**可选增强**：若存在第三方插件 `@linxin666/dsh-usage` 的台账 `<DSH_HOME>/dsh-usage/usage-ledger.json`（设置→使用统计 数据源，完整实时，`renderLedger()` 转换），则直接采用——该文件是第三方插件内部文件而非 DSH 契约，仅检查 `days` 形状（不校验 version），格式不符告警并回退；该文件仅在 @linxin666/dsh-usage 安装并启用时存在，其按 retainDays（默认 180、最大 730）修剪旧天数
   - 缓存：`<DSH_HOME>/storages/token-heatmap-cache.json`（原子写，单飞锁 `withLock`）；测试用临时 `DSH_HOME`
   - 路由：`GET /api/token-heatmap/usage`、`GET|POST /api/token-heatmap/config`（loopback-only）
   - settings namespace：**`"token-heatmap"` 字面量**（0.1.2 起 `dsh-settings` 不再导出 `settingsNamespace()`）
@@ -31,7 +32,7 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 - **rc.1 破坏性变更备忘**：
   - live session 无 `.events` 数组 → `session.seq` + `session.eventAt(seq)`（0 基，官方 `dsh-token-meter` 读法）
   - **hero 判断：`session.blank`（布尔，true=新会话）**；旧版用 `composerPhase === "blank"`——client 里已双兼容（`heroBlank`），改时别丢掉
-  - **`sessionPersistence` 在 rc.1 不再提供会话枚举**（`list`/`listSnapshots` 已移除）→ 0.1.6 起 `collectUsage` **优先读 DSH 用量台账** `dsh-usage/usage-ledger.json`（完整实时，与内置统计一致），彻底绕过该限制；台账缺失时才回退到保留已折叠的 persisted 缓存、只累计 live 会话（`canEnumeratePersisted` 开关）；旧版（有 `list`）仍走完整持久化增量路径
+  - **`sessionPersistence` 在 rc.1 不再提供会话枚举**（`list`/`listSnapshots` 已移除）→ 0.1.6 起 `apply()` 注册官方 `session/event` 监听器实时折叠 live 会话 usage（不依赖 hero 屏挂载，彻底绕过该限制）；可选增强：若存在第三方 `@linxin666/dsh-usage` 台账 `dsh-usage/usage-ledger.json` 则直接采用（第三方插件内部文件，非 DSH 契约，仅检查 `days` 形状）；旧版（有 `list`）仍走完整持久化增量路径
 - **DSH STORE 的 protectedDsh 信号**（客户端访问内置 UI/统计）是设计使然，README 已披露，保持现状
 
 ## 修改守则

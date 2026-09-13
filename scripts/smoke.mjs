@@ -78,9 +78,9 @@ check("renderUsage total = 325", rendered.total === 325, `got ${rendered.total}`
 check("renderUsage sorted ascending", rendered.days[0].date < rendered.days[1].date);
 check("day model list desc by tokens", rendered.days[1].models[0].model === "deepseek-official/deepseek-v4-flash" && rendered.days[1].models[1].model === "pi-ai/custom/foo");
 
-// ---- renderLedger (DSH usage-ledger.json → wire shape) ---------------
-// The ledger is the heatmap's primary source: same wire shape as renderUsage,
-//.reasoningTokens excluded from the main total (matches the built-in stats).
+// ---- renderLedger (@linxin666/dsh-usage ledger → wire shape) ---------
+// Optional enhancement: same wire shape as renderUsage, reasoningTokens
+// excluded from the main total (matches @linxin666/dsh-usage's stats card).
 const ledger = {
 	version: 1,
 	days: {
