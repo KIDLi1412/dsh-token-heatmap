@@ -49,7 +49,7 @@ dsh plugin --profile web remove @kidli1412/dsh-token-heatmap
 
 ## 工作原理 / How it works
 
-- **服务端**（`lib/index.js` + `lib/usage.js` + `lib/config.js`）：作为 profile bundle 挂载，增量折叠全部会话事件日志中的 token 用量样本（`assistant/chunk` 的 `usage` 与 `assistant/message` 的 `usage`；同 `(turn, step)` 的重复样本按"替换"语义处理，归属后一天），按天、按模型聚合，缓存到 `<DSH_HOME>/storages/token-heatmap-cache.json`，并通过回环受限端点 `GET /api/token-heatmap/usage` 提供；显示配置（开关 + 配色）由插件注册的 `token-heatmap` settings namespace 持有（settings.yaml），`GET/POST /api/token-heatmap/config` 作为回环兼容 API 读写同一 namespace，0.1.1 及更早的 `token-heatmap-config.json` 文档在启动时一次性迁移。
+- **服务端**（`lib/index.js` + `lib/usage.js` + `lib/config.js`）：作为 profile bundle 挂载，**优先读取 DSH 内置用量台账**（`<DSH_HOME>/dsh-usage/usage-ledger.json`，即 设置 → 使用统计 的数据源）——它是完整、实时、按天/按 provider/按模型聚合的 token 统计，因此热图与内置统计完全一致且跨进程重启不丢历史；台账缺失或格式不支持时回退到增量折叠会话事件日志（`assistant/chunk` 的 `usage` 与 `assistant/message` 的 `usage`；同 `(turn, step)` 的重复样本按"替换"语义处理，归属后一天），按天、按模型聚合，缓存到 `<DSH_HOME>/storages/token-heatmap-cache.json`。通过回环受限端点 `GET /api/token-heatmap/usage` 提供；显示配置（开关 + 配色）由插件注册的 `token-heatmap` settings namespace 持有（settings.yaml），`GET/POST /api/token-heatmap/config` 作为回环兼容 API 读写同一 namespace，0.1.1 及更早的 `token-heatmap-config.json` 文档在启动时一次性迁移。
 - **客户端**（`lib/client.js`）：手写 `__ModuleLoader__` bundle，注册进会话 `conversation.input.dock` 列表插槽，仅当 `session.composerPhase === "blank"`（新会话 hero 屏）且配置开关开启时渲染。框架真正的"卡片下方"插槽 `conversation.composer.dock` 在 hero 屏被 `!hero` 门控禁用，因此本插件利用 `input.dock` 容器（flex 列）的 CSS `order` 把自己排到输入卡片**之后**。配置卡注册进官方 `settings.plugin.item` 插槽（设置 → 插件 → 插件配置页签），经 settings scope 读写 `token-heatmap` namespace（该 namespace 由本插件在服务端注册，官方页签只渲染"Host 实际 serve 的 namespace ∩ 已注册 key"的卡片）。
 - 语义与 `dsh-token-meter` 的 `tokenUsage` 投影一致（参考插件 [dsh-usage-stats](https://github.com/Ychris12138/dsh-usage-stats)，MIT）。
 
@@ -66,6 +66,7 @@ dsh plugin --profile web remove @kidli1412/dsh-token-heatmap
 - **宿主要求（dsh-market 显示）**：`engines.dsh: ^0.1.2-rc.1`，并将运行时依赖的 lockstep 宿主包声明为 `peerDependencies`（`dsh-host-webserver` / `dsh-session` / `dsh-session-persistence` / `dsh-settings` 与客户端模块 `dsh-api-remotes` / `dsh-client-connection` / `dsh-client-locale` / `dsh-client-ui-conversation` / `dsh-client-ui-settings`，均为 `^0.1.2-rc.1`）；插件市场会据此显示"宿主要求"并判断与当前 DSH 是否匹配。
 - **依赖**：`@deepseek-ai/dsh-settings` 自 0.1.3 起提升为 `^0.1.2-rc.1`、`@deepseek-ai/schemastery` 提升为 `^3.18.2`，与 DSH 0.1.2 版本线对齐。npm 的 prerelease 解析规则下 `^0.1.0-rc.7` 不会解析到 `0.1.2-rc.1`（只会装 `0.1.0-rc.8`），因此较低的范围会拉到与新版 DSH 不同 train 的 settings 副本。
 - **0.1.4（DSH 0.1.2 适配）**：rc.1 起 live session 不再携带 `.events` 数组（改用 `session.seq` + `session.eventAt(seq)`，与官方 `dsh-token-meter` 相同），新会话判断从 `composerPhase === "blank"` 改为布尔 `session.blank`；`sessionPersistence` 在 rc.1 不再提供会话枚举（list/listSnapshots 已移除），持久化历史的增量刷新降级为保留已有缓存、只累计 live 会话。客户端注入模块列表同步为新架构模块（见上）。
+- **0.1.6（用量台账数据源）**：`collectUsage` 改为优先读取 DSH 内置用量台账 `<DSH_HOME>/dsh-usage/usage-ledger.json`（设置 → 使用统计 的数据源），解决 rc.1 上 `sessionPersistence` 不再提供会话枚举导致持久化历史无法刷新、且 live 会话仅在 hero 屏挂载时才折叠而漏计同一日其他会话用量的问题（表现为当日总量偏小、历史天数丢失）；台账缺失或格式不支持时自动回退到原有的会话事件增量折叠。token 口径与内置统计一致（input + output + cacheRead + cacheWrite，不含 reasoningTokens）。
 
 ## License
 

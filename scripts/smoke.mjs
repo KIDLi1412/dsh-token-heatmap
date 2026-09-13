@@ -78,6 +78,39 @@ check("renderUsage total = 325", rendered.total === 325, `got ${rendered.total}`
 check("renderUsage sorted ascending", rendered.days[0].date < rendered.days[1].date);
 check("day model list desc by tokens", rendered.days[1].models[0].model === "deepseek-official/deepseek-v4-flash" && rendered.days[1].models[1].model === "pi-ai/custom/foo");
 
+// ---- renderLedger (DSH usage-ledger.json → wire shape) ---------------
+// The ledger is the heatmap's primary source: same wire shape as renderUsage,
+//.reasoningTokens excluded from the main total (matches the built-in stats).
+const ledger = {
+	version: 1,
+	days: {
+		"2026-08-13": {
+			"deepseek-official": {
+				"deepseek-v4-flash": { inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, cacheWriteTokens: 5, reasoningTokens: 7, calls: 1, cost: 0 }
+			}
+		},
+		"2026-08-14": {
+			"pi-ai": {
+				"custom/foo": { inputTokens: 200, outputTokens: 80, cacheReadTokens: 0, cacheWriteTokens: 0, calls: 1, cost: 0 }
+			},
+			"deepseek-official": {
+				"deepseek-v4-flash": { inputTokens: 30, outputTokens: 10, cacheReadTokens: 5, cacheWriteTokens: 0, calls: 1, cost: 0 }
+			}
+		}
+	}
+};
+const lr = usage.renderLedger(ledger, 5678);
+check("renderLedger shape", lr.days.length === 2 && lr.days[0].date === "2026-08-13" && lr.updatedAt === 5678, JSON.stringify(lr));
+check("renderLedger day1 = 100+50+10+5 = 165 (reasoning excluded)", lr.days[0].tokens === 165, `got ${lr.days[0].tokens}`);
+check("renderLedger day2 = 280 + 45 = 325", lr.days[1].tokens === 325, `got ${lr.days[1].tokens}`);
+check("renderLedger total = 490", lr.total === 490, `got ${lr.total}`);
+check("renderLedger model key is provider/model", lr.days[0].models[0].model === "deepseek-official/deepseek-v4-flash");
+check("renderLedger models desc by tokens", lr.days[1].models[0].tokens >= lr.days[1].models[1].tokens);
+check("renderLedger sorted ascending", lr.days[0].date < lr.days[1].date);
+check("renderLedger null ledger → empty", usage.renderLedger(null, 0).days.length === 0 && usage.renderLedger(null, 0).total === 0);
+check("renderLedger empty days → empty", usage.renderLedger({ version: 1, days: {} }, 0).total === 0);
+check("renderLedger tolerates missing cache fields", usage.renderLedger({ version: 1, days: { "2026-01-01": { "p": { "m": { inputTokens: 5 } } } } }, 0).total === 5);
+
 // ---------------------------------------------------------------- client.js
 console.log("client.js");
 globalThis.window = {};

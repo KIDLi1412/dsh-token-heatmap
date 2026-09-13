@@ -10,7 +10,7 @@
  * Runs against a throwaway DSH_HOME so the real cache file is untouched.
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectUsage } from "../lib/index.js";
@@ -75,6 +75,41 @@ try {
 	};
 	const persistedOk = await collectUsage(rc1WithPersistence);
 	check("persistence without enumeration is tolerated", persistedOk.total === 4200, `total=${persistedOk.total}`);
+
+	// ---- ledger primary source -----------------------------------------
+	// When a DSH usage ledger exists, collectUsage uses it as the primary
+	// source (complete + real-time) instead of the session-event fold, so the
+	// heatmap stays exact across process restarts even when persisted sessions
+	// cannot be enumerated (rc.1).
+	const ledgerHome = mkdtempSync(join(tmpdir(), "thm-ledger-"));
+	process.env.DSH_HOME = ledgerHome;
+	mkdirSync(join(ledgerHome, "dsh-usage"), { recursive: true });
+	writeFileSync(
+		join(ledgerHome, "dsh-usage", "usage-ledger.json"),
+		JSON.stringify({
+			version: 1,
+			days: {
+				"2026-01-15": {
+					"buddy": {
+						"deepseek-v4.1-flash": { inputTokens: 1000, outputTokens: 500, cacheReadTokens: 200, cacheWriteTokens: 0, reasoningTokens: 0, calls: 1, cost: 0 }
+					}
+				}
+			}
+		}),
+		"utf8"
+	);
+	const ledgerResult = await collectUsage({ get: () => void 0, logger: { warn() {} } });
+	const ledgerDay = ledgerResult.days.find((entry) => entry.date === "2026-01-15");
+	check("ledger is the primary source", ledgerResult.total === 1700, `total=${ledgerResult.total}`);
+	check("ledger day total", ledgerDay !== void 0 && ledgerDay.tokens === 1700, JSON.stringify(ledgerDay));
+	check("ledger model attribution", ledgerDay?.models?.[0]?.model === "buddy/deepseek-v4.1-flash");
+	// Without a ledger, collectUsage falls back to the session-event fold and
+	// does not serve the (now-deleted) ledger data.
+	rmSync(join(ledgerHome, "dsh-usage", "usage-ledger.json"), { force: true });
+	const fallbackResult = await collectUsage({ get: () => void 0, logger: { warn() {} } });
+	const fallbackHasLedgerDay = fallbackResult.days.some((entry) => entry.date === "2026-01-15");
+	check("no ledger → fallback does not serve ledger data", !fallbackHasLedgerDay, `days=${fallbackResult.days.map((d) => d.date).join(",")}`);
+	rmSync(ledgerHome, { recursive: true, force: true });
 } finally {
 	rmSync(tmpHome, { recursive: true, force: true });
 	delete process.env.DSH_HOME;
