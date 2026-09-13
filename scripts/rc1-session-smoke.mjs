@@ -10,7 +10,7 @@
  * Runs against a throwaway DSH_HOME so the real cache file is untouched.
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectUsage, apply } from "../lib/index.js";
@@ -44,7 +44,7 @@ const check = (name, ok, detail = "") => {
 
 try {
 	// rc.1 session shape: seq + eventAt, no .events array; persistence absent
-	// (rc.1 exposes no list/listSnapshots enumeration).
+	// on this context (the enumeration/read shapes are covered below).
 	const rc1Session = { id: "rc1-s1", seq: events.length, eventAt: (n) => events[n] };
 	const rc1Ctx = makeCtx({ list: () => [rc1Session] });
 
@@ -76,40 +76,67 @@ try {
 	const persistedOk = await collectUsage(rc1WithPersistence);
 	check("persistence without enumeration is tolerated", persistedOk.total === 4200, `total=${persistedOk.total}`);
 
-	// ---- ledger optional enhancement -----------------------------------
-	// When the @linxin666/dsh-usage ledger exists, collectUsage serves it as
-	// an optional enhancement (complete + real-time) over the session/event
-	// fold, recovering full history even when persisted sessions cannot be
-	// enumerated (rc.1). The file only exists when that plugin is installed.
-	const ledgerHome = mkdtempSync(join(tmpdir(), "thm-ledger-"));
-	process.env.DSH_HOME = ledgerHome;
-	mkdirSync(join(ledgerHome, "dsh-usage"), { recursive: true });
-	writeFileSync(
-		join(ledgerHome, "dsh-usage", "usage-ledger.json"),
-		JSON.stringify({
-			version: 1,
-			days: {
-				"2026-01-15": {
-					"buddy": {
-						"deepseek-v4.1-flash": { inputTokens: 1000, outputTokens: 500, cacheReadTokens: 200, cacheWriteTokens: 0, reasoningTokens: 0, calls: 1, cost: 0 }
-					}
+	/**
+	 * The 0.1.3+ stored-session shape: `sessionPersistence.list()` enumerates
+	 * sessions and `open(id, "read")` + `handle.read()` returns the whole log —
+	 * `listSnapshots`/`readFrom` are gone. collectUsage must fold those stored
+	 * sessions, must use the snapshot revision to skip an unchanged log, and
+	 * must fold only the newly appended events when the revision moves.
+	 */
+	async function persistedSmokeChecks() {
+		const home = mkdtempSync(join(tmpdir(), "thm-persisted-"));
+		process.env.DSH_HOME = home;
+		try {
+			const day = localDay(now);
+			const storedEvents = [
+				{ seq: 0, time: now, type: "request/header", data: { header: { config: { provider: "buddy", model: "deepseek-v4.1-flash" } } } },
+				{ seq: 1, time: now, type: "assistant/message", data: { turn: 0, step: 0, message: { source: { provider: "buddy", model: "deepseek-v4.1-flash" } }, usage: { inputTokens: 1000, outputTokens: 500, cacheReadTokens: 200 } } }
+			];
+			let log = storedEvents;
+			let revision = "rev-1";
+			const logged = [];
+			const persistence = {
+				list: async () => [{ header: { id: "stored-s1" }, revision }],
+				open: async (id, access) => {
+					logged.push(`${id}:${access}`);
+					return {
+						read: async () => ({ events: log }),
+						close: async () => {}
+					};
 				}
-			}
-		}),
-		"utf8"
-	);
-	const ledgerResult = await collectUsage({ get: () => void 0, logger: { warn() {} } });
-	const ledgerDay = ledgerResult.days.find((entry) => entry.date === "2026-01-15");
-	check("ledger optional enhancement served", ledgerResult.total === 1700, `total=${ledgerResult.total}`);
-	check("ledger day total", ledgerDay !== void 0 && ledgerDay.tokens === 1700, JSON.stringify(ledgerDay));
-	check("ledger model attribution", ledgerDay?.models?.[0]?.model === "buddy/deepseek-v4.1-flash");
-	// Without a ledger, collectUsage falls back to the session-event fold and
-	// does not serve the (now-deleted) ledger data.
-	rmSync(join(ledgerHome, "dsh-usage", "usage-ledger.json"), { force: true });
-	const fallbackResult = await collectUsage({ get: () => void 0, logger: { warn() {} } });
-	const fallbackHasLedgerDay = fallbackResult.days.some((entry) => entry.date === "2026-01-15");
-	check("no ledger → fallback does not serve ledger data", !fallbackHasLedgerDay, `days=${fallbackResult.days.map((d) => d.date).join(",")}`);
-	rmSync(ledgerHome, { recursive: true, force: true });
+			};
+			const storedCtx = {
+				get: (service) => (service === "sessionPersistence" ? persistence : void 0),
+				logger: { warn() {} }
+			};
+
+			const firstRead = await collectUsage(storedCtx);
+			const firstDay = firstRead.days.find((entry) => entry.date === day);
+			check("list()+open() stored session folded", firstRead.total === 1700, `total=${firstRead.total}`);
+			check("stored session model attribution", firstDay !== void 0 && firstDay.models[0].model === "buddy/deepseek-v4.1-flash", JSON.stringify(firstDay));
+			check("open() called with read access", logged.length === 1 && logged[0] === "stored-s1:read", logged.join(","));
+
+			// Same revision → the log is not re-read at all.
+			await collectUsage(storedCtx);
+			check("unchanged revision skips the log read", logged.length === 1, `reads=${logged.length}`);
+
+			// Revision moved with one appended event → fold the delta only.
+			log = [...storedEvents, { seq: 2, time: now, type: "assistant/message", data: { turn: 1, step: 0, message: { source: { provider: "buddy", model: "deepseek-v4.1-flash" } }, usage: { inputTokens: 10, outputTokens: 5 } } }];
+			revision = "rev-2";
+			const grown = await collectUsage(storedCtx);
+			check("new revision folds only the appended event", grown.total === 1715, `total=${grown.total}`);
+
+			// A shorter log (truncated/rewritten) refolds from scratch.
+			log = [{ seq: 0, time: now, type: "assistant/message", data: { turn: 0, step: 0, message: { source: { provider: "buddy", model: "deepseek-v4.1-flash" } }, usage: { inputTokens: 7, outputTokens: 3 } } }];
+			revision = "rev-3";
+			const rewritten = await collectUsage(storedCtx);
+			check("rewritten log refolds from scratch", rewritten.total === 10, `total=${rewritten.total}`);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	}
+
+	await persistedSmokeChecks();
 
 	// ---- session/event real-time fold ---------------------------------
 	// apply() registers a session/event listener that folds each event into
