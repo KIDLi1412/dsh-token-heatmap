@@ -11,8 +11,8 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 ## 结构
 
 - `lib/index.js` — 服务端 half（cordis plugin，`inject: ["webServer","sessions","sessionPersistence","settings"]`）
-  - `apply()`：注册官方 `session/event` 监听器实时折叠每个 usage 事件进缓存（不依赖 hero 屏挂载，绕过 rc.1 枚举限制）；启动时一次性补折叠已存在 live 会话
-  - `collectUsage()`：**主路径=渲染 session/event 实时折叠的缓存**（请求时再做一次 live 增量同步兜底）；**可选增强**：若存在第三方插件 `@linxin666/dsh-usage` 的台账 `<DSH_HOME>/dsh-usage/usage-ledger.json`（设置→使用统计 数据源，完整实时，`renderLedger()` 转换），则直接采用——该文件是第三方插件内部文件而非 DSH 契约，仅检查 `days` 形状（不校验 version），格式不符告警并回退；该文件仅在 @linxin666/dsh-usage 安装并启用时存在，其按 retainDays（默认 180、最大 730）修剪旧天数
+  - `apply()`：注册官方 `session/event` 监听器实时折叠每个 usage 事件进缓存（不依赖 hero 屏挂载）；启动时一次性补折叠已存在 live 会话
+  - `collectUsage()`：**主路径=请求时增量同步 live 会话 + 枚举 stored 会话补齐历史**（`readSessionEvents()` 双接口兼容：0.1.2 线的 `readFrom()` 与 0.1.3+ 的 `open()`/`handle.read()`；`listSnapshots()`/`list()` 的 `revision` 用于跳过未变更日志）
   - 缓存：`<DSH_HOME>/storages/token-heatmap-cache.json`（原子写，单飞锁 `withLock`）；测试用临时 `DSH_HOME`
   - 路由：`GET /api/token-heatmap/usage`、`GET|POST /api/token-heatmap/config`（loopback-only）
   - settings namespace：**`"token-heatmap"` 字面量**（0.1.2 起 `dsh-settings` 不再导出 `settingsNamespace()`）
@@ -32,7 +32,8 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 - **rc.1 破坏性变更备忘**：
   - live session 无 `.events` 数组 → `session.seq` + `session.eventAt(seq)`（0 基，官方 `dsh-token-meter` 读法）
   - **hero 判断：`session.blank`（布尔，true=新会话）**；旧版用 `composerPhase === "blank"`——client 里已双兼容（`heroBlank`），改时别丢掉
-  - **`sessionPersistence` 在 rc.1 不再提供会话枚举**（`list`/`listSnapshots` 已移除）→ 0.1.6 起 `apply()` 注册官方 `session/event` 监听器实时折叠 live 会话 usage（不依赖 hero 屏挂载，彻底绕过该限制）；可选增强：若存在第三方 `@linxin666/dsh-usage` 台账 `dsh-usage/usage-ledger.json` 则直接采用（第三方插件内部文件，非 DSH 契约，仅检查 `days` 形状）；旧版（有 `list`）仍走完整持久化增量路径
+  - **`sessionPersistence` 的 stored 会话读取接口换过两代**：0.1.2 线（`0.1.0-rc.8` … `0.1.2-rc.1`）是 `listSnapshots()` + `readFrom(id, fromSeq)`；**0.1.3-alpha.2 起改为 `list()` + `open(id,"read")`/`handle.read()`**（`readFrom`/`listSnapshots` 已移除，`list()` 的 snapshot 同样带 `revision`）。改这块必须两条都留（`readSessionEvents()`），且 `state.consumed` 存的是 **seq 不是 index**——只探测 `list()` 却调 `readFrom` 会让每个 stored 会话抛错并被吞掉，表现为热力图只剩进程内 live 的几天
+  - `session/event` 监听器与 `collectUsage` 共用同一份内存缓存与 per-session `consumed` 游标，不要在其中一方重置状态而不重置另一方
 - **DSH STORE 的 protectedDsh 信号**（客户端访问内置 UI/统计）是设计使然，README 已披露，保持现状
 
 ## 修改守则
