@@ -12,13 +12,17 @@ assert.equal(typeof SETTINGS_NAMESPACE, "string");
 assert.equal(SETTINGS_NAMESPACE, "token-heatmap", "namespace must be token-heatmap");
 
 // Empty section → schema defaults.
-assert.deepEqual(TokenHeatmapSettingsSchema({}), { enabled: true, colorScheme: "green", defaultView: "year" });
+assert.deepEqual(TokenHeatmapSettingsSchema({}), { colorScheme: "green", defaultView: "year" });
 
 // Explicit values pass through.
-assert.deepEqual(TokenHeatmapSettingsSchema({ enabled: false, colorScheme: "blue", defaultView: "month" }), { enabled: false, colorScheme: "blue", defaultView: "month" });
+assert.deepEqual(TokenHeatmapSettingsSchema({ colorScheme: "blue", defaultView: "month" }), { colorScheme: "blue", defaultView: "month" });
 
-// Non-boolean enabled is rejected → the Host refuses the write.
-assert.throws(() => TokenHeatmapSettingsSchema({ enabled: "yes" }), /enabled/, "non-boolean enabled must throw");
+// The 0.1.x display switch is not part of the schema any more. Schemastery
+// passes an undeclared key through untouched, so a stale `enabled` survives in
+// the resolved section — which is fine: nothing reads it (serveConfig reports a
+// constant true, and the client no longer gates on it).
+assert.deepEqual(TokenHeatmapSettingsSchema({ enabled: false }), { enabled: false, colorScheme: "green", defaultView: "year" }, "retired enabled is inert");
+assert.equal(TokenHeatmapSettingsSchema({ enabled: false }).colorScheme, "green", "retired enabled must not affect the resolved defaults");
 
 // Blank scheme is rejected (min length 1).
 assert.throws(() => TokenHeatmapSettingsSchema({ colorScheme: "" }), /colorScheme/, "blank scheme must throw");
@@ -29,7 +33,7 @@ assert.throws(() => TokenHeatmapSettingsSchema({ colorScheme: "x".repeat(40) }),
 // Unknown-but-well-formed scheme is preserved verbatim, so a newer client's
 // palette survives (the client falls back to green while rendering).
 const resolved = TokenHeatmapSettingsSchema({ colorScheme: "rainbow" });
-assert.deepEqual(resolved, { enabled: true, colorScheme: "rainbow", defaultView: "year" }, "unknown scheme must be preserved");
+assert.deepEqual(resolved, { colorScheme: "rainbow", defaultView: "year" }, "unknown scheme must be preserved");
 
 // The view mode IS enumerated (unlike the scheme): an unknown mode has no
 // renderer to fall back to in the client, so the Host refuses the write.

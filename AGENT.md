@@ -1,6 +1,6 @@
 # AGENT.md — dsh-token-heatmap
 
-DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格每日 token 用量热力图，**年视图 / 月视图可切换**、六套配色与显示开关（设置 → 插件 → 插件配置），含今日/本月/累计统计。
+DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格每日 token 用量热力图，**年视图 / 月视图可切换**、六套配色与默认视图设置（设置 → 插件 → 插件配置），含今日/本月/累计统计。
 
 ## 快速命令
 
@@ -18,11 +18,11 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
   - settings namespace：**`"token-heatmap"` 字面量**（0.1.2 起 `dsh-settings` 不再导出 `settingsNamespace()`）
   - 迁移：`migrateLegacyConfig()` 一次性导入旧 `storages/token-heatmap-config.json`
 - `lib/usage.js` — 纯函数：`applyUsageDelta`（replace-last-sample 语义）/ `createUsageState` / `foldUsage` / `renderUsage` / 按本地日聚合
-- `lib/config.js` — 纯函数：`DEFAULT_CONFIG` / `parseConfig`（布尔 + 短字符串 shape 约束）
+- `lib/config.js` — 纯函数：`DEFAULT_CONFIG` / `parseConfig`（短字符串 shape 约束 + `defaultView` 枚举；0.1.x 的 `enabled` 已废弃、读到即忽略）
 - `lib/client.js` — 浏览器 half：**手写 `window.__ModuleLoader__.load({id, factory})` bundle，无构建步骤**；React 组件（`require("react")` / `require("react/jsx-runtime")`）；CSS 走 `data-plugin-css` 通道
-  - `conversation.input.dock`（list slot，id `token-heatmap`，order 10）——hero 屏输入卡上方全宽条目
-  - `settings.plugin.item`（keyed slot，**key** `token-heatmap`）
-  - 视图：`buildGrid()`（年，53 列 × 7 行）/ `buildMonthGrid()`（月，7 列 × 5–6 行 + 日号），`levelOf()` 绝对阈值分档，`S.viewNav` 年/月分段切换，`shiftMonthKey()` 月游标步进；默认视图来自 `defaultView` 设置
+  - `conversation.input.dock`（list slot，id `token-heatmap`，order 10）——hero 屏输入卡上方全宽条目（**无显示开关**：hero 屏始终渲染）
+  - `settings.plugin.item`（keyed slot，**key** `token-heatmap`）——卡内只有 配色方案 / 默认视图 两个字段
+  - 视图：`buildGrid()`（年，53 列 × 7 行）/ `buildMonthGrid()`（月，7 列 × 5–6 行 + 日号），`levelOf()` 绝对阈值分档，`S.viewNav` 年/月分段切换（在标题行**最右端**、刷新按钮之后），`shiftMonthKey()` 月游标步进；默认视图来自 `defaultView` 设置
 - `scripts/*.mjs` — 自包含 smoke（mock ctx / mock settings scope / 临时 DSH_HOME）
 
 ## 兼容性（重要，改代码前必读）
@@ -43,7 +43,7 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 - 不要试图在 rc.1 上"恢复" persisted 会话枚举——官方没有公开 API，降级路径是有意为之
 - client 保持手写 bundle 格式与 `data-plugin-css` 通道；组件是 React 组件（返回 JSX 元素，不要返回 DOM 节点）
 - 新增视图/格子渲染必须同时改 `buildGrid`（年）与 `buildMonthGrid`（月）两条路径，并在 `scripts/smoke.mjs` 补对应几何断言（列=周一起、越界格为 null、level 与 `levelOf` 一致）
-- settings 字段：`colorScheme` 只约束 shape（新色板要能存进旧服务端），`defaultView` 是枚举（未知值没有渲染器可回退）——加字段时想清楚属于哪种，并同步 `lib/config.js` / `lib/index.js` schema / client `createConfigStore` 三处 + 对应 smoke
+- settings 字段：`colorScheme` 只约束 shape（新色板要能存进旧服务端），`defaultView` 是枚举（未知值没有渲染器可回退）——加字段时想清楚属于哪种，并同步 `lib/config.js` / `lib/index.js` schema / client `createConfigStore` 三处 + 对应 smoke。**删字段**（如 0.3.0 删掉的 `enabled`）时：schema 移除该键即可，schemastery 会把未声明键原样透传（旧 `settings.yaml` 的键留着但没人读）；只有当该字段出现在回环兼容 API 的响应里才需要保留常量占位（`serveConfig` 的 `enabled: true`），否则旧客户端会改行为
 - 文档截图（`docs/预览-新版会话页.jpg` / `月视图.jpg` / `年视图.jpg`）改 UI 后需重拍，工具链在 `scripts/`：`docs-screenshot-auth.mjs`（用 `~/.dsh/.credentials.yaml` 里的 browser-session secret 现签回环登录 cookie）→ `docs-screenshot.mjs`（CDP 驱动 headless 浏览器加载运行中的 `dsh web`，截整页 + 年/月两张卡片）→ `docs-screenshot-crop.mjs`（用系统 Edge/Chrome 无头渲染成 README 尺寸的裁切图，再用 System.Drawing/ImageMagick 转 JPEG 落到 `docs/`）。**截图前必须把新 `lib/client.js` 覆盖到 profile 安装目录**（服务端只从那里取客户端 half，HMR 轮询 ~1s 内重算 bundle rev）；headless 浏览器需要命名管道，受限沙箱下会被拒（需 danger-full-access）
 - 新测试加入 `package.json` 的 `"test"` 链；改完必须 `npm run check && npm test` 全绿
 - 提交用 Conventional Commits（`feat:` / `fix:` / `chore:` / `docs:`），原子提交；改动涉及运行时契约时同步 bump 版本 + README「兼容性」小节

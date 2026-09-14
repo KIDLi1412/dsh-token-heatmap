@@ -29,19 +29,22 @@ function check(name, condition, detail = "") {
 // ---------------------------------------------------------------- config.js
 console.log("config.js");
 const config = await import(pathToFileURL(join(root, "lib/config.js")).href);
-const defaults = { enabled: true, colorScheme: "green", defaultView: "year" };
+const defaults = { colorScheme: "green", defaultView: "year" };
 check("default config shape", JSON.stringify(config.DEFAULT_CONFIG) === JSON.stringify(defaults));
 check("parseConfig(undefined) → defaults", JSON.stringify(config.parseConfig(undefined)) === JSON.stringify(defaults));
 check("parseConfig(null) → defaults", JSON.stringify(config.parseConfig(null)) === JSON.stringify(defaults));
 check("parseConfig({}) → defaults", JSON.stringify(config.parseConfig({})) === JSON.stringify(defaults));
-check("parseConfig({enabled:false}) keeps scheme+view defaults", JSON.stringify(config.parseConfig({ enabled: false })) === JSON.stringify({ enabled: false, colorScheme: "green", defaultView: "year" }));
-check("parseConfig({colorScheme:\"blue\"}) keeps enabled+view defaults", JSON.stringify(config.parseConfig({ colorScheme: "blue" })) === JSON.stringify({ enabled: true, colorScheme: "blue", defaultView: "year" }));
-check("parseConfig full override", JSON.stringify(config.parseConfig({ enabled: false, colorScheme: "blue", defaultView: "month" })) === JSON.stringify({ enabled: false, colorScheme: "blue", defaultView: "month" }));
-check("invalid fields fall back to defaults", JSON.stringify(config.parseConfig({ enabled: "yes", junk: 1 })) === JSON.stringify(defaults));
-check("unknown scheme preserved verbatim", JSON.stringify(config.parseConfig({ colorScheme: "rainbow" })) === JSON.stringify({ enabled: true, colorScheme: "rainbow", defaultView: "year" }));
+check("parseConfig({colorScheme:\"blue\"}) keeps the view default", JSON.stringify(config.parseConfig({ colorScheme: "blue" })) === JSON.stringify({ colorScheme: "blue", defaultView: "year" }));
+check("parseConfig full override", JSON.stringify(config.parseConfig({ colorScheme: "blue", defaultView: "month" })) === JSON.stringify({ colorScheme: "blue", defaultView: "month" }));
+check("invalid fields fall back to defaults", JSON.stringify(config.parseConfig({ junk: 1 })) === JSON.stringify(defaults));
+// The 0.1.x display switch is retired: a stored `enabled` is ignored, never
+// echoed back, and never disables the card.
+check("legacy enabled:false is ignored", JSON.stringify(config.parseConfig({ enabled: false })) === JSON.stringify(defaults));
+check("legacy enabled:true is ignored", JSON.stringify(config.parseConfig({ enabled: true })) === JSON.stringify(defaults));
+check("unknown scheme preserved verbatim", JSON.stringify(config.parseConfig({ colorScheme: "rainbow" })) === JSON.stringify({ colorScheme: "rainbow", defaultView: "year" }));
 check("blank scheme falls back to default", config.parseConfig({ colorScheme: "   " }).colorScheme === "green");
 check("overlong scheme falls back to default", config.parseConfig({ colorScheme: "x".repeat(40) }).colorScheme === "green");
-check("new scheme accepted by parseConfig", JSON.stringify(config.parseConfig({ colorScheme: "teal" })) === JSON.stringify({ enabled: true, colorScheme: "teal", defaultView: "year" }));
+check("new scheme accepted by parseConfig", JSON.stringify(config.parseConfig({ colorScheme: "teal" })) === JSON.stringify({ colorScheme: "teal", defaultView: "year" }));
 check("COLOR_SCHEMES lists all six schemes", JSON.stringify(config.COLOR_SCHEMES) === JSON.stringify(["green", "blue", "orange", "red", "purple", "teal"]));
 // defaultView is bounded to the rendered modes (unlike colorScheme, which is
 // only shape-bounded so newer palettes survive an older server).
@@ -150,14 +153,17 @@ function createMockScope(initial) {
 }
 const mock = createMockScope({ status: "loading", value: void 0, writable: false, mode: "host" });
 const store = exports.createConfigStore(mock);
-check("store loading → defaults", store.getSnapshot().enabled === true && store.getSnapshot().colorScheme === "green" && store.getSnapshot().defaultView === "year", JSON.stringify(store.getSnapshot()));
+check("store loading → defaults", store.getSnapshot().colorScheme === "green" && store.getSnapshot().defaultView === "year", JSON.stringify(store.getSnapshot()));
 mock.publish({ status: "ready", value: { enabled: false, colorScheme: "purple", defaultView: "month" }, writable: true, mode: "host" });
-check("store ready → resolved values", store.getSnapshot().enabled === false && store.getSnapshot().colorScheme === "purple" && store.getSnapshot().defaultView === "month", JSON.stringify(store.getSnapshot()));
+check("store ready → resolved values", store.getSnapshot().colorScheme === "purple" && store.getSnapshot().defaultView === "month", JSON.stringify(store.getSnapshot()));
+// The retired display switch is not part of the snapshot any more, so no
+// renderer can gate on it.
+check("store snapshot has no enabled flag", !Object.hasOwn(store.getSnapshot(), "enabled"), JSON.stringify(store.getSnapshot()));
 mock.publish({ status: "unavailable", value: void 0, writable: false, mode: "host" });
-check("store unavailable → defaults", store.getSnapshot().enabled === true && store.getSnapshot().colorScheme === "green" && store.getSnapshot().defaultView === "year", JSON.stringify(store.getSnapshot()));
+check("store unavailable → defaults", store.getSnapshot().colorScheme === "green" && store.getSnapshot().defaultView === "year", JSON.stringify(store.getSnapshot()));
 mock.publish({ status: "ready", value: { enabled: true, colorScheme: "green", defaultView: "year" }, writable: true, mode: "host" });
 await store.set({ enabled: false });
-check("store set writes through the scope", mock.getSnapshot().value.enabled === false);
+check("store ignores a legacy enabled write", mock.getSnapshot().value.enabled !== false);
 await store.set({ colorScheme: "blue" });
 check("store set writes scheme through the scope", mock.getSnapshot().value.colorScheme === "blue");
 await store.set({ colorScheme: "   " });
@@ -342,13 +348,15 @@ check("GET config → defaults", first.ok === true && first.enabled === true && 
 res = makeRes();
 await configRoute.handler(makeReq("POST", JSON.stringify({ enabled: false, colorScheme: "blue", defaultView: "month" })), res);
 const saved = JSON.parse(res.body);
-check("POST config → saved values", saved.ok === true && saved.enabled === false && saved.colorScheme === "blue" && saved.defaultView === "month", JSON.stringify(saved));
+// The retired switch stays advertised as true even when a client posts false,
+// so a pre-0.2.0 client never hides the card.
+check("POST config → saved values", saved.ok === true && saved.enabled === true && saved.colorScheme === "blue" && saved.defaultView === "month", JSON.stringify(saved));
 res = makeRes();
 await configRoute.handler(makeReq("GET"), res);
 const second = JSON.parse(res.body);
-check("GET config → persisted values", second.ok === true && second.enabled === false && second.colorScheme === "blue" && second.defaultView === "month", JSON.stringify(second));
+check("GET config → persisted values", second.ok === true && second.enabled === true && second.colorScheme === "blue" && second.defaultView === "month", JSON.stringify(second));
 const storedSection = settingsSections.get(server.SETTINGS_NAMESPACE).user;
-check("settings section updated (not the legacy file)", JSON.stringify(storedSection) === JSON.stringify({ enabled: false, colorScheme: "blue", defaultView: "month" }), JSON.stringify(storedSection));
+check("settings section updated without the retired switch", JSON.stringify(storedSection) === JSON.stringify({ colorScheme: "blue", defaultView: "month" }), JSON.stringify(storedSection));
 check("legacy config file absent after settings-backed write", !existsSync(join(dshHome, "storages", "token-heatmap-config.json")));
 res = makeRes();
 await configRoute.handler(makeReq("DELETE"), res);
@@ -373,10 +381,11 @@ const legacyDir = join(dshHome, "storages");
 const legacyFile = join(legacyDir, "token-heatmap-config.json");
 mkdirSync(legacyDir, { recursive: true });
 // 1. Non-default legacy document with no settings section → imported + dropped.
+// Its `enabled` switch is retired, so only the surviving fields are imported.
 writeFileSync(legacyFile, JSON.stringify({ enabled: false, colorScheme: "purple" }), "utf8");
 settingsSections.get(server.SETTINGS_NAMESPACE).user = void 0;
 await server.migrateLegacyConfig(serverCtx);
-check("migration imports non-default values", JSON.stringify(settingsSections.get(server.SETTINGS_NAMESPACE).user) === JSON.stringify({ enabled: false, colorScheme: "purple" }), JSON.stringify(settingsSections.get(server.SETTINGS_NAMESPACE).user));
+check("migration imports non-default values", JSON.stringify(settingsSections.get(server.SETTINGS_NAMESPACE).user) === JSON.stringify({ colorScheme: "purple" }), JSON.stringify(settingsSections.get(server.SETTINGS_NAMESPACE).user));
 check("migration removes the legacy file", !existsSync(legacyFile));
 // 2. Defaults-only legacy document → dropped without touching the section.
 writeFileSync(legacyFile, JSON.stringify({ enabled: true, colorScheme: "green" }), "utf8");
