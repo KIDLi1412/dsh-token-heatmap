@@ -126,6 +126,20 @@ if (flipped === "unusable") throw new Error("年/月 toggle not found");
 await sleep(800);
 await capture("card-b", `other view (was ${flipped})`);
 
+// Third state: the in-card ⚙ settings panel open (palette + default view).
+const opened = await evaluate(`(() => {
+	const gear = document.querySelector('.thm_gear');
+	if (gear === null) return false;
+	if (gear.getAttribute('aria-expanded') !== 'true') gear.click();
+	return true;
+})()`);
+if (opened === true) {
+	await sleep(700);
+	await capture("settings", "settings panel");
+} else {
+	console.log("no ⚙ gear found; skipped the settings panel shot");
+}
+
 const full = await send("Page.captureScreenshot", { format: "png" });
 writeFileSync(new URL("../temp/shot-page.png", import.meta.url), Buffer.from(full.data, "base64"));
 console.log("captured page → temp/shot-page.png");

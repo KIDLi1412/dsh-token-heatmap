@@ -20,10 +20,10 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 - `lib/usage.js` — 纯函数：`applyUsageDelta`（replace-last-sample 语义）/ `createUsageState` / `foldUsage` / `renderUsage` / 按本地日聚合
 - `lib/config.js` — 纯函数：`DEFAULT_CONFIG` / `parseConfig`（短字符串 shape 约束 + `defaultView` 枚举；0.1.x 的 `enabled` 已废弃、读到即忽略）
 - `lib/client.js` — 浏览器 half：**手写 `window.__ModuleLoader__.load({id, factory})` bundle，无构建步骤**；React 组件（`require("react")` / `require("react/jsx-runtime")`）；CSS 走 `data-plugin-css` 通道
-  - `conversation.input.dock`（list slot，id `token-heatmap`，order 10）——hero 屏输入卡上方全宽条目（**无显示开关**：hero 屏始终渲染）
-  - `settings.plugin.item`（keyed slot，**key** `token-heatmap`）——卡内只有 配色方案 / 默认视图 两个字段
-  - 视图：`buildGrid()`（年，53 列 × 7 行）/ `buildMonthGrid()`（月，7 列 × 5–6 行 + 日号），`levelOf()` 绝对阈值分档，`S.viewNav` 年/月分段切换（在标题行**最右端**、刷新按钮之后），`shiftMonthKey()` 月游标步进；默认视图来自 `defaultView` 设置
-- `scripts/*.mjs` — 自包含 smoke（mock ctx / mock settings scope / 临时 DSH_HOME）
+  - **只注册 `conversation.input.dock`**（list slot，id `token-heatmap`，order 10）——hero 屏输入卡上方全宽条目（**无显示开关**：hero 屏始终渲染）。0.4.0 起**不注册 `settings.plugin.item`**：设置页里没有本插件的卡片，配置改在卡片内（见下），若哪天要恢复就得同时带上 `key: SETTINGS_NS`（keyed slot 契约）
+  - `TokenHeatmapInlineSettings` —— 卡片 ⚙（`S.gear`，在 `刷新` 右侧、年/月切换左侧）展开的底部面板：配色 6 色板 + 默认视图年月分段，**点击即时写入 settings scope**（无草稿/保存；`pending` 状态做乐观回显，失败显示 `settingsSaveFailed`）
+  - 视图：`buildGrid()`（年，53 列 × 7 行）/ `buildMonthGrid()`（月，7 列 × 5–6 行 + 日号），`levelOf()` 绝对阈值分档，`S.viewNav` 年/月分段切换（在标题行**最右端**），`shiftMonthKey()` 月游标步进；默认视图来自 `defaultView` 设置
+- `scripts/*.mjs` — 自包含 smoke（mock ctx / mock settings scope / 临时 DSH_HOME）+ 文档截图工具链（见「修改守则」）
 
 ## 兼容性（重要，改代码前必读）
 
@@ -35,6 +35,7 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
   - **hero 判断：`session.blank`（布尔，true=新会话）**；旧版用 `composerPhase === "blank"`——client 里已双兼容（`heroBlank`），改时别丢掉
   - **`sessionPersistence` 的 stored 会话读取接口换过两代**：0.1.2 线（`0.1.0-rc.8` … `0.1.2-rc.1`）是 `listSnapshots()` + `readFrom(id, fromSeq)`；**0.1.3-alpha.2 起改为 `list()` + `open(id,"read")`/`handle.read()`**（`readFrom`/`listSnapshots` 已移除，`list()` 的 snapshot 同样带 `revision`）。改这块必须两条都留（`readSessionEvents()`），且 `state.consumed` 存的是 **seq 不是 index**——只探测 `list()` 却调 `readFrom` 会让每个 stored 会话抛错并被吞掉，表现为热力图只剩进程内 live 的几天
   - `session/event` 监听器与 `collectUsage` 共用同一份内存缓存与 per-session `consumed` 游标，不要在其中一方重置状态而不重置另一方
+- **settings 的两半各管什么（重要）**：Host 侧 `ctx.settings.register("token-heatmap", schema)` **必须保留**——官方 `settings` 服务的 `get`/`update`/`describe` 只对**已注册** namespace 生效，它就是 settings.yaml 的校验与持久化管道；client 侧的 `settings.plugin.item` 注册只是"设置页那张卡"，0.4.0 起已移除（配置改在卡片 ⚙ 面板里，见上）。别为了"删设置"把 Host 注册也删了
 - **DSH STORE 的 protectedDsh 信号**（客户端访问内置 UI/统计）是设计使然，README 已披露，保持现状
 
 ## 修改守则
@@ -44,7 +45,7 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 - client 保持手写 bundle 格式与 `data-plugin-css` 通道；组件是 React 组件（返回 JSX 元素，不要返回 DOM 节点）
 - 新增视图/格子渲染必须同时改 `buildGrid`（年）与 `buildMonthGrid`（月）两条路径，并在 `scripts/smoke.mjs` 补对应几何断言（列=周一起、越界格为 null、level 与 `levelOf` 一致）
 - settings 字段：`colorScheme` 只约束 shape（新色板要能存进旧服务端），`defaultView` 是枚举（未知值没有渲染器可回退）——加字段时想清楚属于哪种，并同步 `lib/config.js` / `lib/index.js` schema / client `createConfigStore` 三处 + 对应 smoke。**删字段**（如 0.3.0 删掉的 `enabled`）时：schema 移除该键即可，schemastery 会把未声明键原样透传（旧 `settings.yaml` 的键留着但没人读）；只有当该字段出现在回环兼容 API 的响应里才需要保留常量占位（`serveConfig` 的 `enabled: true`），否则旧客户端会改行为
-- 文档截图（`docs/预览-新版会话页.jpg` / `月视图.jpg` / `年视图.jpg`）改 UI 后需重拍，工具链在 `scripts/`：`docs-screenshot-auth.mjs`（用 `~/.dsh/.credentials.yaml` 里的 browser-session secret 现签回环登录 cookie）→ `docs-screenshot.mjs`（CDP 驱动 headless 浏览器加载运行中的 `dsh web`，截整页 + 年/月两张卡片）→ `docs-screenshot-crop.mjs`（用系统 Edge/Chrome 无头渲染成 README 尺寸的裁切图，再用 System.Drawing/ImageMagick 转 JPEG 落到 `docs/`）。**截图前必须把新 `lib/client.js` 覆盖到 profile 安装目录**（服务端只从那里取客户端 half，HMR 轮询 ~1s 内重算 bundle rev）；headless 浏览器需要命名管道，受限沙箱下会被拒（需 danger-full-access）
+- 文档截图（`docs/预览-新版会话页.jpg` / `月视图.jpg` / `年视图.jpg` / `卡片设置面板.jpg`）改 UI 后需重拍，工具链在 `scripts/`：`docs-screenshot-auth.mjs`（用 `~/.dsh/.credentials.yaml` 里的 browser-session secret 现签回环登录 cookie）→ `docs-screenshot.mjs`（CDP 驱动 headless 浏览器加载运行中的 `dsh web`，截整页 + 年/月/⚙ 三张卡片状态）→ `docs-screenshot-crop.mjs`（用系统 Edge/Chrome 无头渲染成 README 尺寸的裁切图，再用 System.Drawing/ImageMagick 转 JPEG 落到 `docs/`；`THM_VIEW=month` 用于 card-a 恰好是月视图时）。**截图前必须把新 `lib/client.js` 覆盖到 profile 安装目录**（服务端只从那里取客户端 half，HMR 轮询 ~1s 内重算 bundle rev），**且同步只在会话开始时做一次**：同步会重置该插件行的 `defaultView` 用户层，之后用户手动切换会翻转 `shot-card-a/b` 的含义
 - 新测试加入 `package.json` 的 `"test"` 链；改完必须 `npm run check && npm test` 全绿
 - 提交用 Conventional Commits（`feat:` / `fix:` / `chore:` / `docs:`），原子提交；改动涉及运行时契约时同步 bump 版本 + README「兼容性」小节
 - 本地仓库有 codegraph 索引（`.codegraph/`，已 gitignore），可先用 codegraph 探索再改

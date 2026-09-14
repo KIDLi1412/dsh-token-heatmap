@@ -21,6 +21,7 @@ const b64 = (name) => readFileSync(new URL(name, root)).toString("base64");
 const monthFirst = (process.env.THM_VIEW ?? "year") === "month";
 const monthShot = b64(`temp/shot-card-${monthFirst ? "a" : "b"}.png`);
 const yearShot = b64(`temp/shot-card-${monthFirst ? "b" : "a"}.png`);
+const settingsShot = b64("temp/shot-settings.png");
 const pageShot = b64("temp/shot-page.png");
 
 // Page capture is 1440x800 CSS at deviceScaleFactor 2; the main column starts
@@ -35,6 +36,7 @@ writeFileSync(new URL("temp/preview-main.html", root), main);
 const card = (data) => `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}img{display:block;width:1300px}</style></head><body><img src="data:image/png;base64,${data}"></body></html>`;
 writeFileSync(new URL("temp/preview-month.html", root), card(monthShot));
 writeFileSync(new URL("temp/preview-year.html", root), card(yearShot));
+writeFileSync(new URL("temp/preview-settings.html", root), card(settingsShot));
 
 const browser = [
 	"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -46,7 +48,8 @@ if (browser === undefined) throw new Error("no Edge/Chrome found to render the c
 const jobs = [
 	{ file: "temp/preview-main.html", size: "1050,600", out: "temp/preview-main.png" },
 	{ file: "temp/preview-month.html", size: "1300,505", out: "temp/preview-month.png" },
-	{ file: "temp/preview-year.html", size: "1300,380", out: "temp/preview-year.png" }
+	{ file: "temp/preview-year.html", size: "1300,380", out: "temp/preview-year.png" },
+	{ file: "temp/preview-settings.html", size: "1300,760", out: "temp/preview-settings.png" }
 ];
 for (const job of jobs) {
 	const result = spawnSync(browser, [
