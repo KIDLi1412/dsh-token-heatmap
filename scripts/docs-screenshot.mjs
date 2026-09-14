@@ -140,6 +140,14 @@ if (opened === true) {
 	console.log("no ⚙ gear found; skipped the settings panel shot");
 }
 
+// Collapse the settings panel again so the context shot shows the card in its
+// resting state (the dedicated panel shot above already covers it).
+await evaluate(`(() => {
+	const gear = document.querySelector('.thm_gear');
+	if (gear !== null && gear.getAttribute('aria-expanded') === 'true') gear.click();
+	return true;
+})()`);
+await sleep(500);
 const full = await send("Page.captureScreenshot", { format: "png" });
 writeFileSync(new URL("../temp/shot-page.png", import.meta.url), Buffer.from(full.data, "base64"));
 console.log("captured page → temp/shot-page.png");

@@ -24,7 +24,7 @@ GitHub 风格自然年热力图：覆盖所选自然年 1月–12月（`‹ 2026
 
 ### 共同特性 / Shared
 
-- 🔀 **年 / 月切换**：标题行**最右侧**（刷新按钮右边）的分段按钮即时切换视图。
+- 🔀 **年 / 月切换**：标题行里的分段按钮即时切换视图（在 `‹ ›` 步进器右边，跟着它一起管当前视图）；`刷新` 与 **⚙** 在行的最右端。
 - 🎨 **六套配色**：绿色（经典 GitHub 风格）、蓝色、橙色、红色、紫色、青色，点卡片上的 **⚙** 切换（见下）；颜色按**绝对阈值**分档（按天 token 数，非相对排名）：0 / <1M / 1M–10M / 10M–100M / ≥100M 共 5 级，卡片右下角图例悬停显示各档范围；61M/天 显示为第 3 级。悬停任意格子（年视图的 10px 格子或月视图的日期格）显示日期与精确 token 数。
 - 🔢 **统计行**（与标题同一行）：今日 / 本月 / 累计，悬停显示完整数值；本月/累计与当前视图无关，始终是实时值。
 - 🔄 自动每 5 分钟刷新，窗口重新可见时也会刷新；行尾可手动刷新。
@@ -33,7 +33,7 @@ GitHub 风格自然年热力图：覆盖所选自然年 1月–12月（`‹ 2026
 
 ![⚙ 设置面板](docs/卡片设置面板.jpg)
 
-- ⚙️ **设置就在卡片上**：点标题行里 `刷新` 右边的 **⚙**（`刷新 [⚙] [年|月]`）在卡片底部展开设置面板，再点一次收起。**插件不再往 DSH 设置（设置 → 插件 → 插件配置）里注册任何卡片**，所以那里看不到本插件。
+- ⚙️ **设置就在卡片上**：点标题行最右端的 **⚙**（`刷新 [⚙]`）在卡片底部展开设置面板，再点一次、点面板的 **×**、按 **Esc**、或把焦点移出面板都会收起。**插件不再往 DSH 设置（设置 → 插件 → 插件配置）里注册任何卡片**，所以那里看不到本插件。
 - **配色方案**：六个色板按钮，**点击即时生效**（不需要"保存"）；**默认视图**：年 / 月，决定新会话页面首次打开时显示哪个视图（当次会话手动切换只影响当前页面）。
 - 写入失败时面板底部会红字提示"保存失败，已回到服务端的值"（settings scope 复核后回滚乐观值）。
 - 配置经 `token-heatmap` settings namespace 持久化到 `<DSH_HOME>/settings.yaml`（0.1.1 及更早版本存在 `<DSH_HOME>/storages/token-heatmap-config.json` 的旧配置会在启动时自动迁移）。
@@ -69,7 +69,7 @@ dsh plugin --profile web remove @kidli1412/dsh-token-heatmap
 ## 工作原理 / How it works
 
 - **服务端**（`lib/index.js` + `lib/usage.js` + `lib/config.js`）：作为 profile bundle 挂载，**实时折叠会话事件**（监听官方 `session/event`，每个 `assistant/chunk`/`assistant/message` 的 `usage` 事件即时写入缓存，不依赖 hero 屏挂载）；启动时一次性补折叠已存在的 live 会话（如 resumed 会话）；请求时 `collectUsage` 再做一次增量同步兜底，并枚举 **已归档（stored）会话**补齐历史——两种 `sessionPersistence` 接口都支持：0.1.2 线的 `listSnapshots()` + `readFrom()`，以及 0.1.3 起取代它们的 `list()` + `open()`/`handle.read()`。同 `(turn, step)` 的重复样本按"替换"语义处理，归属后一天；按天、按模型聚合，缓存到 `<DSH_HOME>/storages/token-heatmap-cache.json`。通过回环受限端点 `GET /api/token-heatmap/usage` 提供；显示配置（配色 + 默认视图）由插件注册的 `token-heatmap` settings namespace 持有（settings.yaml），`GET/POST /api/token-heatmap/config` 作为回环兼容 API 读写同一 namespace（0.1.x 的 `enabled` 开关已废弃，该字段只作为常量 `true` 回给旧客户端），0.1.1 及更早的 `token-heatmap-config.json` 文档在启动时一次性迁移。
-- **客户端**（`lib/client.js`）：手写 `__ModuleLoader__` bundle，注册进会话 `conversation.input.dock` 列表插槽，仅在 `session.blank`（新会话 hero 屏；旧宿主回退 `composerPhase === "blank"`）时渲染——卡片没有显示开关，hero 屏上始终显示。框架真正的"卡片下方"插槽 `conversation.composer.dock` 在 hero 屏被 `!hero` 门控禁用，因此本插件利用 `input.dock` 容器（flex 列）的 CSS `order` 把自己排到输入卡片**之后**。同一份数据由 `buildGrid()`（年，53 列 × 7 行）与 `buildMonthGrid()`（月，7 列 × 5–6 行，带日号）两个纯函数分别铺格，共用 `levelOf()` 的绝对阈值分档与 `palette` 配色；`‹ ›` 按钮按当前视图步进年或月，边界取"当前年/月"与"数据里最早的月"，年/月分段按钮位于标题行最右端，⚙ 设置面板在卡片底部展开。**不注册 `settings.plugin.item`**（官方"插件配置"页签只渲染"Host 实际 serve 的 namespace ∩ 客户端已注册 key"的卡片，本插件不再占这个位置），只经 settings scope 读写 `token-heatmap` namespace（该 namespace 仍由服务端注册，是配置的校验与持久化管道）。
+- **客户端**（`lib/client.js`）：手写 `__ModuleLoader__` bundle，注册进会话 `conversation.input.dock` 列表插槽，仅在 `session.blank`（新会话 hero 屏；旧宿主回退 `composerPhase === "blank"`）时渲染——卡片没有显示开关，hero 屏上始终显示。框架真正的"卡片下方"插槽 `conversation.composer.dock` 在 hero 屏被 `!hero` 门控禁用，因此本插件利用 `input.dock` 容器（flex 列）的 CSS `order` 把自己排到输入卡片**之后**。同一份数据由 `buildGrid()`（年，53 列 × 7 行）与 `buildMonthGrid()`（月，7 列 × 5–6 行，带日号）两个纯函数分别铺格，共用 `levelOf()` 的绝对阈值分档与 `palette` 配色；`‹ ›` 按钮按当前视图步进年或月，边界取"当前年/月"与"数据里最早的月"，年/月分段按钮紧跟在步进器后面，**⚙ 设置面板**在卡片底部展开（内嵌面板，动作：⚙ 切换 / × / Esc / 焦点移出）。**不注册 `settings.plugin.item`**（官方"插件配置"页签只渲染"Host 实际 serve 的 namespace ∩ 客户端已注册 key"的卡片，本插件不再占这个位置），只经 settings scope 读写 `token-heatmap` namespace（该 namespace 仍由服务端注册，是配置的校验与持久化管道）。
 - 语义与 `dsh-token-meter` 的 `tokenUsage` 投影一致（参考插件 [dsh-usage-stats](https://github.com/Ychris12138/dsh-usage-stats)，MIT）。
 
 ## 说明 / Notes

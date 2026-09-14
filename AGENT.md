@@ -21,8 +21,9 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 - `lib/config.js` — 纯函数：`DEFAULT_CONFIG` / `parseConfig`（短字符串 shape 约束 + `defaultView` 枚举；0.1.x 的 `enabled` 已废弃、读到即忽略）
 - `lib/client.js` — 浏览器 half：**手写 `window.__ModuleLoader__.load({id, factory})` bundle，无构建步骤**；React 组件（`require("react")` / `require("react/jsx-runtime")`）；CSS 走 `data-plugin-css` 通道
   - **只注册 `conversation.input.dock`**（list slot，id `token-heatmap`，order 10）——hero 屏输入卡上方全宽条目（**无显示开关**：hero 屏始终渲染）。0.4.0 起**不注册 `settings.plugin.item`**：设置页里没有本插件的卡片，配置改在卡片内（见下），若哪天要恢复就得同时带上 `key: SETTINGS_NS`（keyed slot 契约）
-  - `TokenHeatmapInlineSettings` —— 卡片 ⚙（`S.gear`，在 `刷新` 右侧、年/月切换左侧）展开的底部面板：配色 6 色板 + 默认视图年月分段，**点击即时写入 settings scope**（无草稿/保存；`pending` 状态做乐观回显，失败显示 `settingsSaveFailed`）
-  - 视图：`buildGrid()`（年，53 列 × 7 行）/ `buildMonthGrid()`（月，7 列 × 5–6 行 + 日号），`levelOf()` 绝对阈值分档，`S.viewNav` 年/月分段切换（在标题行**最右端**），`shiftMonthKey()` 月游标步进；默认视图来自 `defaultView` 设置
+  - `TokenHeatmapInlineSettings` —— 卡片底部展开的内嵌设置面板（`S.settingsPanel`，内嵌灰底 + 12px 圆角，含标题/×/配色 6 色板/默认视图年月分段/两行说明），由标题行最右端的 ⚙（`S.gear`，`刷新` 右边）切换，`×`/`Esc`/焦点移出面板都会收起；**点击即时写入 settings scope**（无草稿/保存；`pending` 状态做乐观回显，失败显示 `settingsSaveFailed`）
+  - 排布：`标题 · 统计… · ‹ › 步进器 · 年|月分段 … 刷新 · ⚙`（步进器和分段按钮成对，刷新与 ⚙ 收在行尾）
+  - 视图：`buildGrid()`（年，53 列 × 7 行）/ `buildMonthGrid()`（月，7 列 × 5–6 行 + 日号），`levelOf()` 绝对阈值分档，`shiftMonthKey()` 月游标步进；默认视图来自 `defaultView` 设置
 - `scripts/*.mjs` — 自包含 smoke（mock ctx / mock settings scope / 临时 DSH_HOME）+ 文档截图工具链（见「修改守则」）
 
 ## 兼容性（重要，改代码前必读）
