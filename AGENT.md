@@ -1,6 +1,6 @@
 # AGENT.md — dsh-token-heatmap
 
-DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格每日 token 用量热力图，可选年份视图、绿/蓝配色与显示开关（设置 → 插件 → 插件配置），含今日/本月/累计统计。
+DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格每日 token 用量热力图，**年视图 / 月视图可切换**、六套配色与显示开关（设置 → 插件 → 插件配置），含今日/本月/累计统计。
 
 ## 快速命令
 
@@ -22,6 +22,7 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 - `lib/client.js` — 浏览器 half：**手写 `window.__ModuleLoader__.load({id, factory})` bundle，无构建步骤**；React 组件（`require("react")` / `require("react/jsx-runtime")`）；CSS 走 `data-plugin-css` 通道
   - `conversation.input.dock`（list slot，id `token-heatmap`，order 10）——hero 屏输入卡上方全宽条目
   - `settings.plugin.item`（keyed slot，**key** `token-heatmap`）
+  - 视图：`buildGrid()`（年，53 列 × 7 行）/ `buildMonthGrid()`（月，7 列 × 5–6 行 + 日号），`levelOf()` 绝对阈值分档，`S.viewNav` 年/月分段切换，`shiftMonthKey()` 月游标步进；默认视图来自 `defaultView` 设置
 - `scripts/*.mjs` — 自包含 smoke（mock ctx / mock settings scope / 临时 DSH_HOME）
 
 ## 兼容性（重要，改代码前必读）
@@ -41,6 +42,9 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 - 服务端读 session 事件**必须走 `liveSessionEvents()`**（不要直接碰 `session.events`）
 - 不要试图在 rc.1 上"恢复" persisted 会话枚举——官方没有公开 API，降级路径是有意为之
 - client 保持手写 bundle 格式与 `data-plugin-css` 通道；组件是 React 组件（返回 JSX 元素，不要返回 DOM 节点）
+- 新增视图/格子渲染必须同时改 `buildGrid`（年）与 `buildMonthGrid`（月）两条路径，并在 `scripts/smoke.mjs` 补对应几何断言（列=周一起、越界格为 null、level 与 `levelOf` 一致）
+- settings 字段：`colorScheme` 只约束 shape（新色板要能存进旧服务端），`defaultView` 是枚举（未知值没有渲染器可回退）——加字段时想清楚属于哪种，并同步 `lib/config.js` / `lib/index.js` schema / client `createConfigStore` 三处 + 对应 smoke
+- 文档截图在 `docs/`（`预览-新版会话页.jpg` / `月视图.jpg` / `年视图.jpg`）：改 UI 后需重新截图，做法是 CDP 驱动 headless 浏览器加载运行中的 `dsh web`（登录 cookie 由 `~/.dsh/.credentials.yaml` 里的 browser-session secret 现签），截取整页后裁剪出统计卡；截图前必须把新 `lib/client.js` 覆盖到 profile 安装目录，HMR 轮询会在 ~1s 内重算 bundle rev
 - 新测试加入 `package.json` 的 `"test"` 链；改完必须 `npm run check && npm test` 全绿
 - 提交用 Conventional Commits（`feat:` / `fix:` / `chore:` / `docs:`），原子提交；改动涉及运行时契约时同步 bump 版本 + README「兼容性」小节
 - 本地仓库有 codegraph 索引（`.codegraph/`，已 gitignore），可先用 codegraph 探索再改
