@@ -29,20 +29,27 @@ function check(name, condition, detail = "") {
 // ---------------------------------------------------------------- config.js
 console.log("config.js");
 const config = await import(pathToFileURL(join(root, "lib/config.js")).href);
-const defaults = { enabled: true, colorScheme: "green" };
+const defaults = { enabled: true, colorScheme: "green", defaultView: "year" };
 check("default config shape", JSON.stringify(config.DEFAULT_CONFIG) === JSON.stringify(defaults));
 check("parseConfig(undefined) → defaults", JSON.stringify(config.parseConfig(undefined)) === JSON.stringify(defaults));
 check("parseConfig(null) → defaults", JSON.stringify(config.parseConfig(null)) === JSON.stringify(defaults));
 check("parseConfig({}) → defaults", JSON.stringify(config.parseConfig({})) === JSON.stringify(defaults));
-check("parseConfig({enabled:false}) keeps scheme default", JSON.stringify(config.parseConfig({ enabled: false })) === JSON.stringify({ enabled: false, colorScheme: "green" }));
-check("parseConfig({colorScheme:\"blue\"}) keeps enabled default", JSON.stringify(config.parseConfig({ colorScheme: "blue" })) === JSON.stringify({ enabled: true, colorScheme: "blue" }));
-check("parseConfig full override", JSON.stringify(config.parseConfig({ enabled: false, colorScheme: "blue" })) === JSON.stringify({ enabled: false, colorScheme: "blue" }));
+check("parseConfig({enabled:false}) keeps scheme+view defaults", JSON.stringify(config.parseConfig({ enabled: false })) === JSON.stringify({ enabled: false, colorScheme: "green", defaultView: "year" }));
+check("parseConfig({colorScheme:\"blue\"}) keeps enabled+view defaults", JSON.stringify(config.parseConfig({ colorScheme: "blue" })) === JSON.stringify({ enabled: true, colorScheme: "blue", defaultView: "year" }));
+check("parseConfig full override", JSON.stringify(config.parseConfig({ enabled: false, colorScheme: "blue", defaultView: "month" })) === JSON.stringify({ enabled: false, colorScheme: "blue", defaultView: "month" }));
 check("invalid fields fall back to defaults", JSON.stringify(config.parseConfig({ enabled: "yes", junk: 1 })) === JSON.stringify(defaults));
-check("unknown scheme preserved verbatim", JSON.stringify(config.parseConfig({ colorScheme: "rainbow" })) === JSON.stringify({ enabled: true, colorScheme: "rainbow" }));
+check("unknown scheme preserved verbatim", JSON.stringify(config.parseConfig({ colorScheme: "rainbow" })) === JSON.stringify({ enabled: true, colorScheme: "rainbow", defaultView: "year" }));
 check("blank scheme falls back to default", config.parseConfig({ colorScheme: "   " }).colorScheme === "green");
 check("overlong scheme falls back to default", config.parseConfig({ colorScheme: "x".repeat(40) }).colorScheme === "green");
-check("new scheme accepted by parseConfig", JSON.stringify(config.parseConfig({ colorScheme: "teal" })) === JSON.stringify({ enabled: true, colorScheme: "teal" }));
+check("new scheme accepted by parseConfig", JSON.stringify(config.parseConfig({ colorScheme: "teal" })) === JSON.stringify({ enabled: true, colorScheme: "teal", defaultView: "year" }));
 check("COLOR_SCHEMES lists all six schemes", JSON.stringify(config.COLOR_SCHEMES) === JSON.stringify(["green", "blue", "orange", "red", "purple", "teal"]));
+// defaultView is bounded to the rendered modes (unlike colorScheme, which is
+// only shape-bounded so newer palettes survive an older server).
+check("VIEW_MODES lists year+month", JSON.stringify(config.VIEW_MODES) === JSON.stringify(["year", "month"]));
+check("month defaultView accepted", config.parseConfig({ defaultView: "month" }).defaultView === "month");
+check("padded defaultView accepted", config.parseConfig({ defaultView: " month " }).defaultView === "month");
+check("unknown defaultView falls back to year", config.parseConfig({ defaultView: "week" }).defaultView === "year");
+check("non-string defaultView falls back to year", config.parseConfig({ defaultView: 7 }).defaultView === "year");
 
 // ---------------------------------------------------------------- usage.js
 console.log("usage.js");
@@ -143,18 +150,24 @@ function createMockScope(initial) {
 }
 const mock = createMockScope({ status: "loading", value: void 0, writable: false, mode: "host" });
 const store = exports.createConfigStore(mock);
-check("store loading → defaults", store.getSnapshot().enabled === true && store.getSnapshot().colorScheme === "green", JSON.stringify(store.getSnapshot()));
-mock.publish({ status: "ready", value: { enabled: false, colorScheme: "purple" }, writable: true, mode: "host" });
-check("store ready → resolved values", store.getSnapshot().enabled === false && store.getSnapshot().colorScheme === "purple", JSON.stringify(store.getSnapshot()));
+check("store loading → defaults", store.getSnapshot().enabled === true && store.getSnapshot().colorScheme === "green" && store.getSnapshot().defaultView === "year", JSON.stringify(store.getSnapshot()));
+mock.publish({ status: "ready", value: { enabled: false, colorScheme: "purple", defaultView: "month" }, writable: true, mode: "host" });
+check("store ready → resolved values", store.getSnapshot().enabled === false && store.getSnapshot().colorScheme === "purple" && store.getSnapshot().defaultView === "month", JSON.stringify(store.getSnapshot()));
 mock.publish({ status: "unavailable", value: void 0, writable: false, mode: "host" });
-check("store unavailable → defaults", store.getSnapshot().enabled === true && store.getSnapshot().colorScheme === "green", JSON.stringify(store.getSnapshot()));
-mock.publish({ status: "ready", value: { enabled: true, colorScheme: "green" }, writable: true, mode: "host" });
+check("store unavailable → defaults", store.getSnapshot().enabled === true && store.getSnapshot().colorScheme === "green" && store.getSnapshot().defaultView === "year", JSON.stringify(store.getSnapshot()));
+mock.publish({ status: "ready", value: { enabled: true, colorScheme: "green", defaultView: "year" }, writable: true, mode: "host" });
 await store.set({ enabled: false });
 check("store set writes through the scope", mock.getSnapshot().value.enabled === false);
 await store.set({ colorScheme: "blue" });
 check("store set writes scheme through the scope", mock.getSnapshot().value.colorScheme === "blue");
 await store.set({ colorScheme: "   " });
 check("blank scheme sanitized to default", mock.getSnapshot().value.colorScheme === "green");
+await store.set({ defaultView: "month" });
+check("store set writes the default view through the scope", mock.getSnapshot().value.defaultView === "month");
+await store.set({ defaultView: "week" });
+check("unknown view sanitized to year", mock.getSnapshot().value.defaultView === "year");
+mock.publish({ status: "ready", value: { enabled: true, colorScheme: "green", defaultView: "week" }, writable: true, mode: "host" });
+check("unknown view from the wire → year fallback", store.getSnapshot().defaultView === "year", JSON.stringify(store.getSnapshot()));
 store.dispose();
 
 // Absolute color thresholds (per-day tokens).
@@ -212,6 +225,54 @@ const pastFilled = pastGrid.columns.flatMap((column) => column.cells.filter((cel
 check(`past-year grid filled = ${pastDays} days`, pastFilled.length === pastDays, `got ${pastFilled.length}`);
 check("past-year cells all level 0", pastFilled.every((cell) => cell.level === 0));
 check("past-year months Jan..Dec of that year", pastGrid.monthStarts.length === 12 && pastGrid.monthStarts[0].month === `${pastYear}-01` && pastGrid.monthStarts[11].month === `${pastYear}-12`);
+
+// buildMonthGrid: the ‹年/月› toggle's month view. Monday-first weeks, one
+// row per week the month spans (5 or 6), hard boundaries (leading/trailing
+// cells null so they never paint), day numbers for the calendar face.
+check("buildMonthGrid/月 label exported", typeof exports.buildMonthGrid === "function" && typeof exports.monthLabelFull === "function" && typeof exports.shiftMonthKey === "function");
+const monthGrid = exports.buildMonthGrid(dayMap, now.getTime());
+const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+check("month grid targets the current month", monthGrid.month === monthPrefix, `got ${monthGrid.month}`);
+check("month grid has 5..6 weeks of 7 cells", monthGrid.weeks.length >= 5 && monthGrid.weeks.length <= 6 && monthGrid.weeks.every((week) => week.length === 7), `got ${monthGrid.weeks.length} weeks`);
+const monthCells = monthGrid.weeks.flat().filter((cell) => cell !== null);
+const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+check(`month grid filled cells = ${daysInMonth}`, monthCells.length === daysInMonth, `got ${monthCells.length}`);
+check("month cells all belong to the month", monthCells.every((cell) => cell.key.startsWith(monthPrefix)));
+check("month cells carry a day number", monthCells.every((cell) => cell.day >= 1 && cell.day <= daysInMonth));
+check("month grid day numbers run 1..N in order", monthCells.map((cell) => cell.day).join(",") === Array.from({ length: daysInMonth }, (_, i) => i + 1).join(","));
+// Monday-first: a cell's COLUMN within its week must be (getDay()+6)%7, so
+// Monday sits in the first column and Sunday in the last.
+check("month grid columns are Mon-first", (() => {
+	const first = monthCells[0];
+	const firstColumn = monthGrid.weeks[0].indexOf(first);
+	if (firstColumn !== (new Date(first.key + "T00:00:00").getDay() + 6) % 7) return false;
+	return monthGrid.weeks.every((week) => week.every((cell, column) => cell === null || (new Date(cell.key + "T00:00:00").getDay() + 6) % 7 === column));
+})());
+check("month grid leading days before the 1st are null", (() => {
+	const firstIndex = monthGrid.weeks[0].findIndex((cell) => cell !== null);
+	return monthGrid.weeks[0].slice(0, firstIndex).every((cell) => cell === null);
+})());
+check("month grid trailing days after the last are null", (() => {
+	const lastWeek = monthGrid.weeks[monthGrid.weeks.length - 1];
+	const lastIndex = lastWeek.map((cell) => cell !== null).lastIndexOf(true);
+	return lastWeek.slice(lastIndex + 1).every((cell) => cell === null);
+})());
+check("month grid levels within 0..4 and match levelOf", monthCells.every((cell) => cell.level === exports.levelOf(cell.tokens)));
+// Days after today render as empty level-0 cells (today itself keeps data).
+const future = monthCells.filter((cell) => cell.key > `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`);
+check("future month days are empty level 0", future.every((cell) => cell.level === 0 && cell.tokens === 0));
+const explicitMonth = exports.buildMonthGrid(dayMap, now.getTime(), "2026-02");
+check("explicit month honoured", explicitMonth.month === "2026-02");
+check("February 2026 spans 4 week rows + padding", explicitMonth.weeks.length === 5, `got ${explicitMonth.weeks.length}`);
+check("February 2026 has 28 filled cells", explicitMonth.weeks.flat().filter((cell) => cell !== null).length === 28);
+const emptyMonth = exports.buildMonthGrid(new Map(), now.getTime(), "1999-12");
+check("month with no data fills the calendar at level 0", emptyMonth.weeks.flat().filter((cell) => cell !== null).length === 31 && emptyMonth.weeks.flat().filter((cell) => cell !== null).every((cell) => cell.level === 0));
+// Month cursor arithmetic across year boundaries.
+check("shiftMonthKey steps months", exports.shiftMonthKey("2026-08", -1) === "2026-07" && exports.shiftMonthKey("2026-08", 1) === "2026-09");
+check("shiftMonthKey crosses years", exports.shiftMonthKey("2026-01", -1) === "2025-12" && exports.shiftMonthKey("2026-12", 1) === "2027-01");
+check("shiftMonthKey is a no-op on junk", exports.shiftMonthKey("nope", 1) === "nope");
+// Display labels: zh uses "2026年8月", en uses "Aug 2026".
+check("monthLabelFull formats per locale", /^2026年8月$|^Aug 2026$/.test(exports.monthLabelFull("2026-08")), exports.monthLabelFull("2026-08"));
 
 // ----------------------------------------------------------- server config route
 console.log("server config route");
@@ -277,17 +338,17 @@ const getConfig = async (req, res) => { await configRoute.handler(req, res); ret
 let res = makeRes();
 await configRoute.handler(makeReq("GET"), res);
 const first = JSON.parse(res.body);
-check("GET config → defaults", first.ok === true && first.enabled === true && first.colorScheme === "green", JSON.stringify(first));
+check("GET config → defaults", first.ok === true && first.enabled === true && first.colorScheme === "green" && first.defaultView === "year", JSON.stringify(first));
 res = makeRes();
-await configRoute.handler(makeReq("POST", JSON.stringify({ enabled: false, colorScheme: "blue" })), res);
+await configRoute.handler(makeReq("POST", JSON.stringify({ enabled: false, colorScheme: "blue", defaultView: "month" })), res);
 const saved = JSON.parse(res.body);
-check("POST config → saved values", saved.ok === true && saved.enabled === false && saved.colorScheme === "blue", JSON.stringify(saved));
+check("POST config → saved values", saved.ok === true && saved.enabled === false && saved.colorScheme === "blue" && saved.defaultView === "month", JSON.stringify(saved));
 res = makeRes();
 await configRoute.handler(makeReq("GET"), res);
 const second = JSON.parse(res.body);
-check("GET config → persisted values", second.ok === true && second.enabled === false && second.colorScheme === "blue", JSON.stringify(second));
+check("GET config → persisted values", second.ok === true && second.enabled === false && second.colorScheme === "blue" && second.defaultView === "month", JSON.stringify(second));
 const storedSection = settingsSections.get(server.SETTINGS_NAMESPACE).user;
-check("settings section updated (not the legacy file)", JSON.stringify(storedSection) === JSON.stringify({ enabled: false, colorScheme: "blue" }), JSON.stringify(storedSection));
+check("settings section updated (not the legacy file)", JSON.stringify(storedSection) === JSON.stringify({ enabled: false, colorScheme: "blue", defaultView: "month" }), JSON.stringify(storedSection));
 check("legacy config file absent after settings-backed write", !existsSync(join(dshHome, "storages", "token-heatmap-config.json")));
 res = makeRes();
 await configRoute.handler(makeReq("DELETE"), res);
@@ -301,9 +362,10 @@ check("bad JSON body → 400", res.status === 400);
 // The write path preserves the client's scheme verbatim (shape-bounded), so a
 // newer client's palette survives an older server between restarts.
 res = makeRes();
-await configRoute.handler(makeReq("POST", JSON.stringify({ enabled: "yes", colorScheme: "rainbow" })), res);
+await configRoute.handler(makeReq("POST", JSON.stringify({ enabled: "yes", colorScheme: "rainbow", defaultView: "week" })), res);
 const coerced = JSON.parse(res.body);
 check("write preserves unknown scheme", coerced.ok === true && coerced.enabled === true && coerced.colorScheme === "rainbow", JSON.stringify(coerced));
+check("write bounds the view to known modes", coerced.defaultView === "year", JSON.stringify(coerced));
 
 // ---- legacy migration --------------------------------------------------
 console.log("legacy config migration");
