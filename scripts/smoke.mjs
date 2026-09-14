@@ -114,7 +114,7 @@ check("module loader captured", loaded !== null && loaded.id === "@kidli1412/dsh
 const exports = loaded.factory(fakeRequire);
 check("factory exports buildGrid/levelOf", typeof exports.buildGrid === "function" && typeof exports.levelOf === "function");
 check("apply/inject exported", typeof exports.apply === "function" && Array.isArray(exports.inject));
-check("settings card exported", typeof exports.TokenHeatmapSettingsCard === "function");
+check("settings panel exported", typeof exports.TokenHeatmapInlineSettings === "function");
 check("all six palettes: 5 cells, shared level-0 gray", (() => {
 	const names = ["green", "blue", "orange", "red", "purple", "teal"];
 	if (Object.keys(exports.COLOR_SCHEMES).length !== names.length) return false;
@@ -279,6 +279,34 @@ check("shiftMonthKey crosses years", exports.shiftMonthKey("2026-01", -1) === "2
 check("shiftMonthKey is a no-op on junk", exports.shiftMonthKey("nope", 1) === "nope");
 // Display labels: zh uses "2026年8月", en uses "Aug 2026".
 check("monthLabelFull formats per locale", /^2026年8月$|^Aug 2026$/.test(exports.monthLabelFull("2026-08")), exports.monthLabelFull("2026-08"));
+
+// ---- client apply(): slot registrations ---------------------------------
+// The card owns its settings now, so the plugin must NOT claim the official
+// 设置 → 插件 → 插件配置 seat any more — while still binding the settings
+// namespace scope it reads and writes through.
+console.log("client apply()");
+const injectedSlots = [];
+const registeredSlots = [];
+let boundNamespace = null;
+const applyContext = {
+	settingsScope: {
+		bind: (options) => {
+			boundNamespace = options.namespace;
+			return { getSnapshot: () => ({ status: "loading" }), subscribe: () => () => {}, set: async () => {}, load: async () => {} };
+		}
+	},
+	locale: { register: () => () => {} },
+	slots: {
+		inject: (name, callback) => { injectedSlots.push(name); callback(); },
+		register: (options) => { registeredSlots.push(options); return () => {}; }
+	},
+	effect: (fn) => fn()
+};
+exports.apply(applyContext);
+check("apply registers the input-dock entry only", injectedSlots.length === 1 && injectedSlots[0] === "conversation.input.dock" && registeredSlots.length === 1, JSON.stringify({ injectedSlots, registeredSlots }));
+check("apply does NOT register into settings.plugin.item", registeredSlots.every((options) => options.name !== "settings.plugin.item"), JSON.stringify(registeredSlots));
+check("dock registration keeps id/locale/order", registeredSlots[0].id === "token-heatmap" && registeredSlots[0].locale === "tokenHeatmap" && registeredSlots[0].order === 10, JSON.stringify(registeredSlots[0]));
+check("settings scope still bound to token-heatmap", boundNamespace === "token-heatmap", String(boundNamespace));
 
 // ----------------------------------------------------------- server config route
 console.log("server config route");
