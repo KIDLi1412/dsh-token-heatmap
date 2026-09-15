@@ -22,7 +22,8 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 - `lib/config.js` — 纯函数：`DEFAULT_CONFIG` / `parseConfig`（短字符串 shape 约束 + `defaultView` 枚举；0.1.x 的 `enabled` 已废弃、读到即忽略）
 - `lib/client.js` — 浏览器 half：**手写 `window.__ModuleLoader__.load({id, factory})` bundle，无构建步骤**；React 组件（`require("react")` / `require("react/jsx-runtime")`）；CSS 走 `data-plugin-css` 通道
   - **只注册 `conversation.input.dock`**（list slot，id `token-heatmap`，order 10）——hero 屏输入卡上方全宽条目（**无显示开关**：hero 屏始终渲染）。0.4.0 起**不注册 `settings.plugin.item`**：设置页里没有本插件的卡片，配置改在卡片内（见下），若哪天要恢复就得同时带上 `key: SETTINGS_NS`（keyed slot 契约）
-  - `TokenHeatmapInlineSettings` —— 卡片底部展开的内嵌设置面板（`S.settingsPanel`，内嵌灰底 + 12px 圆角，含标题/×/配色 6 色板/默认视图年月分段/两行说明），由标题行最右端的 ⚙（`S.gear`，`刷新` 右边）切换，`×`/`Esc`/焦点移出面板都会收起；**点击即时写入 settings scope**（无草稿/保存；`pending` 状态做乐观回显，失败显示 `settingsSaveFailed`）
+  - `TokenHeatmapInlineSettings` —— ⚙（`S.gear`，标题行最右端）弹出的**悬浮设置面板**：portal 到 `document.body`、`position:fixed`、`z-index:1100`，锚在 ⚙ 上方 8px 居中、按视口钳制 12px（`placePanel()`，与 dsh-session-cost 的统计 pill 弹层同一套做法与同一组 token：`--dsw-specific-menu` + `--dsw-elevation-prominent` + `--dsw-elevation-stroke-color`）；内容是标题/分隔线/配色 6 色板/默认视图年月分段/底部图例与说明；关闭方式为点外部 pointerdown、Esc、再点 ⚙（监听绑定在 `TokenHeatmap` 上，面板只负责画）。**点击即时写入 settings scope**（无草稿/保存；`pending` 乐观回显，失败显示 `settingsSaveFailed`）
+  - bundle 里 `require("react-dom")` 只服务这个 portal（官方模块图一直提供 react-dom）；`scripts/smoke.mjs` 的 fakeRequire 会跨 profiles / repo 两棵 node_modules 解析它
   - 排布：`标题 · 统计… · ‹ › 步进器 · 年|月分段 … 刷新 · ⚙`（步进器和分段按钮成对，刷新与 ⚙ 收在行尾）
   - 视图：`buildGrid()`（年，53 列 × 7 行）/ `buildMonthGrid()`（月，7 列 × 5–6 行 + 日号），`levelOf()` 绝对阈值分档，`shiftMonthKey()` 月游标步进；默认视图来自 `defaultView` 设置
 - `scripts/*.mjs` — 自包含 smoke（mock ctx / mock settings scope / 临时 DSH_HOME）+ 文档截图工具链（见「修改守则」）

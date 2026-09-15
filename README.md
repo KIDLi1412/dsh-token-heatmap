@@ -31,10 +31,10 @@ GitHub 风格自然年热力图：覆盖所选自然年 1月–12月（`‹ 2026
 
 ### 卡片设置 / In-card settings
 
-![⚙ 设置面板](docs/卡片设置面板.jpg)
+![⚙ 悬浮设置面板](docs/卡片设置面板.jpg)
 
-- ⚙️ **设置就在卡片上**：点标题行最右端的 **⚙**（`刷新 [⚙]`）在卡片底部展开设置面板，再点一次、点面板的 **×**、按 **Esc**、或把焦点移出面板都会收起。**插件不再往 DSH 设置（设置 → 插件 → 插件配置）里注册任何卡片**，所以那里看不到本插件。
-- **配色方案**：六个色板按钮，**点击即时生效**（不需要"保存"）；**默认视图**：年 / 月，决定新会话页面首次打开时显示哪个视图（当次会话手动切换只影响当前页面）。
+- ⚙️ **设置就在卡片上**：点标题行最右端的 **⚙**（`刷新 [⚙]`）弹出**悬浮设置面板** —— 位置在 ⚙ 正上方 8px、水平居中对齐、贴边留 12px，超出视口会自动钳制；点面板外的任意位置、按 **Esc**、或再点一次 ⚙ 都会收起。**插件不再往 DSH 设置（设置 → 插件 → 插件配置）里注册任何卡片**，所以那里看不到本插件。
+- **配色方案**：六个色板按钮，**点击即时生效**（不需要"保存"）；**默认视图**：年 / 月，决定新会话页面首次打开时显示哪个视图（当次会话手动切换只影响当前页面）。面板底部是阈值图例（悬停看各档范围）与一行说明。
 - 写入失败时面板底部会红字提示"保存失败，已回到服务端的值"（settings scope 复核后回滚乐观值）。
 - 配置经 `token-heatmap` settings namespace 持久化到 `<DSH_HOME>/settings.yaml`（0.1.1 及更早版本存在 `<DSH_HOME>/storages/token-heatmap-config.json` 的旧配置会在启动时自动迁移）。
 
@@ -91,6 +91,7 @@ dsh plugin --profile web remove @kidli1412/dsh-token-heatmap
 - **0.4.0（设置搬进卡片）**：不再注册官方 `settings.plugin.item` 插槽——设置页（设置 → 插件 → 插件配置）里不再有本插件的卡片，配色与默认视图改在卡片自己的 ⚙ 面板里改，**点击即时生效**（去掉了草稿/保存/放弃那套）。Host 侧 `settings.register("token-heatmap", schema)` 保留：它是 settings.yaml 的校验与持久化管道，与 UI 卡片无关（官方 `settings` 服务的 `get`/`update` 只对已注册 namespace 生效）。升级只影响设置入口位置，已有配置不动。
 
 - **0.4.1（fork 会话不再重复计入父会话用量）**：DSH 的 fork 子会话（header `isSeeded=true`）日志以父会话事件的完整复制开头，其前 `inheritedEventCount` 个事件是**父会话**的 usage（父会话折叠时已计入）。此前折叠从 seq 0 读整份日志，同一批 token 被计两次——实测 2026-09-14 由 8.34 亿虚增到 13.15 亿。现在三条折叠路径（`collectUsage` 的 live 折叠、`session/event` 实时监听、stored 日志读取）都从 fork 切点开始：live 会话用官方 `session.inheritedEventCount`；stored 日志用最后一个带 `data.inherited === true` 的 `session/end-seed` 的 `seq + 1`（未打标记的 `session/end-seed` 是 compaction 边界，不算切点，与 `dsh-session-format-v2-to-v3` 的切点推导一致）。**resume 不是 fork**：`isSeeded=false` 的会话种子是它自己的历史，仍整份折叠。缓存格式版本提升到 2，旧缓存（可能含重复计入的天数）会被丢弃重建；父会话日志不可得的极端情况下会少计而非多计。
+- **0.4.2（设置改成悬浮面板）**：⚙ 面板从"卡片底部的内嵌条"改为**悬浮面板**——portal 到 `document.body`、`position:fixed`，锚在 ⚙ 上方 8px 且水平居中对齐，按视口钳制（12px 边距），关闭方式为点外部/Esc/再点 ⚙；表面沿用 DSH 原生弹层 token（`--dsw-specific-menu` + `--dsw-elevation-prominent`，配合 `--dsw-elevation-stroke-color` 的发丝边），与底部统计 pill 的弹层一致。为此客户端 bundle 新增 `require("react-dom")`（原生的 `createPortal`），DSH 的模块图里 react-dom 一直存在，旧宿主不受影响。
 
 ## License
 
