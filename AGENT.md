@@ -33,6 +33,7 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
   - live session 无 `.events` 数组 → `session.seq` + `session.eventAt(seq)`（0 基，官方 `dsh-token-meter` 读法）
   - **hero 判断：`session.blank`（布尔，true=新会话）**；旧版用 `composerPhase === "blank"`——client 里已双兼容（`heroBlank`），改时别丢掉
   - **`sessionPersistence` 在 rc.1 不再提供会话枚举**（`list`/`listSnapshots` 已移除）→ 0.1.6 起 `apply()` 注册官方 `session/event` 监听器实时折叠 live 会话 usage（不依赖 hero 屏挂载，彻底绕过该限制）；可选增强：若存在第三方 `@linxin666/dsh-usage` 台账 `dsh-usage/usage-ledger.json` 则直接采用（第三方插件内部文件，非 DSH 契约，仅检查 `days` 形状）；旧版（有 `list`）仍走完整持久化增量路径
+  - **fork 会话会双计父会话 usage**（0.1.7 修复）：fork 子会话的 header `isSeeded=true`，其前 `inheritedEventCount` 个事件是从父会话复制的**父的** usage，父会话折叠时已计过。折叠必须从 fork 切点开始（in-process 用 `session.inheritedEventCount`，持久化日志读最后一个 `data.inherited === true` 的 `session/end-seed` 的 seq+1），否则同一批 token 被计两次（实测 09-14 由 8.34 亿虚增到 13.15 亿）。**注意 `isSeeded=false` 的 resume 会话不是 fork**——它的 constructor seed 是自己的历史，必须全折；只有 `isSeeded=true` 才跳过。`CACHE_VERSION` 提升到 2 以强制重折已污染的缓存
 - **DSH STORE 的 protectedDsh 信号**（客户端访问内置 UI/统计）是设计使然，README 已披露，保持现状
 
 ## 修改守则

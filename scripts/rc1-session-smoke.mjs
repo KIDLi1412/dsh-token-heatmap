@@ -137,6 +137,63 @@ try {
 	check("session/event folded into cache", seDay !== void 0 && seDay.tokens === 800, JSON.stringify(seDay));
 	check("session/event model attribution", seDay?.models?.[0]?.model === "buddy/deepseek-v4.1-flash");
 	rmSync(seHome, { recursive: true, force: true });
+
+	// ---- fork sessions must not double count ---------------------------
+	// A forked session (header.isSeeded) inherits its parent's event prefix.
+	// Those events are the PARENT's usage and are folded when the parent is
+	// folded, so the child must start at inheritedEventCount or the parent's
+	// tokens are counted twice (the 2026-09-14 1.3B-vs-0.83B regression).
+	const forkHome = mkdtempSync(join(tmpdir(), "thm-fork-"));
+	process.env.DSH_HOME = forkHome;
+	const fTime = Date.UTC(2026, 1, 3, 10, 0, 0);
+	const model = { provider: "buddy", model: "deepseek-v4.1-flash" };
+	const usageEvent = (seq, turn, inputTokens) => ({
+		seq, time: fTime, type: "assistant/message",
+		data: { turn, step: 0, message: { source: model }, usage: { inputTokens } }
+	});
+	// Parent: two own usage samples (1500 total).
+	const parentEvents = [
+		{ seq: 0, time: fTime, type: "request/header", data: { header: { config: model } } },
+		usageEvent(1, 0, 1000),
+		usageEvent(2, 1, 500)
+	];
+	const parent = { id: "fork-parent", seq: parentEvents.length, eventAt: (n) => parentEvents[n] };
+	// Child: inherits the parent's prefix (seq 0..1), marks the cut at seq 2,
+	// then adds ONE own sample (700). Only the own sample may be folded.
+	const childEvents = [
+		parentEvents[0],
+		parentEvents[1],
+		{ seq: 2, time: fTime, type: "session/end-seed", data: { inherited: true } },
+		usageEvent(3, 2, 700)
+	];
+	const child = {
+		id: "fork-child",
+		header: { isSeeded: true },
+		inheritedEventCount: 2,
+		seq: childEvents.length,
+		eventAt: (n) => childEvents[n]
+	};
+	// NOTE: assertions are per-day, not `result.total` — loadCache() is a
+	// module-level singleton, so earlier sections in this file share one cache.
+	// The day totals are what the regression is about and they stay isolated.
+	const forkResult = await collectUsage(makeCtx({ list: () => [parent, child] }));
+	const forkDay = forkResult.days.find((d) => d.date === "2026-02-03");
+	// parent own 1500 + child own 700; a broken fold re-adds the inherited
+	// prefix and reports 3700 here.
+	check("fork child does not re-fold the inherited prefix", forkDay !== void 0 && forkDay.tokens === 2200, JSON.stringify(forkDay));
+
+	// A RESUMED session is NOT a fork: its constructor seed is its own stored
+	// history, so all of it must fold (isSeeded false ⇒ no cut).
+	const resumedEvents = [
+		{ seq: 0, time: fTime, type: "request/header", data: { header: { config: model } } },
+		{ seq: 1, time: fTime, type: "session/end-seed", data: {} },
+		{ seq: 2, time: fTime, type: "assistant/message", data: { turn: 0, step: 0, message: { source: model }, usage: { inputTokens: 400 } } }
+	];
+	const resumed = { id: "resumed-s1", header: { isSeeded: false }, seq: resumedEvents.length, eventAt: (n) => resumedEvents[n] };
+	const resumedResult = await collectUsage(makeCtx({ list: () => [resumed] }));
+	const resumedDay = resumedResult.days.find((d) => d.date === "2026-02-03");
+	check("resumed session folds its whole own log", resumedDay !== void 0 && resumedDay.tokens === 2600, JSON.stringify(resumedDay));
+	rmSync(forkHome, { recursive: true, force: true });
 } finally {
 	rmSync(tmpHome, { recursive: true, force: true });
 	delete process.env.DSH_HOME;
