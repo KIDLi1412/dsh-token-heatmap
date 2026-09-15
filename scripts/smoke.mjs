@@ -104,9 +104,26 @@ if (reactCandidates.length === 0) {
 	process.exit(1);
 }
 const requireFromProfile = createRequire(pathToFileURL(reactCandidates[0]));
+// Resolve an optional peer from ANY of the candidate trees: react may live in
+// the DSH profiles dir while react-dom sits in the repo's node_modules (or the
+// other way round), and the settings panel's portal needs react-dom.
+const requireOptional = (name) => {
+	const candidates = [
+		...reactCandidates.map((entry) => join(dirname(entry), "..")),
+		join(root, "node_modules")
+	];
+	for (const base of candidates) {
+		try {
+			return createRequire(pathToFileURL(join(base, "package.json")))(name);
+		} catch { /* try the next tree */ }
+	}
+	return undefined;
+};
+const optionalReactDom = requireOptional("react-dom");
 const fakeRequire = (name) => {
 	if (name === "react") return requireFromProfile("react");
 	if (name === "react/jsx-runtime") return requireFromProfile("react/jsx-runtime");
+	if (name === "react-dom" && optionalReactDom !== undefined) return optionalReactDom;
 	throw new Error(`unexpected require: ${name}`);
 };
 await import(pathToFileURL(join(root, "lib/client.js")).href);

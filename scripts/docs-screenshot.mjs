@@ -126,7 +126,9 @@ if (flipped === "unusable") throw new Error("年/月 toggle not found");
 await sleep(800);
 await capture("card-b", `other view (was ${flipped})`);
 
-// Third state: the in-card ⚙ settings panel open (palette + default view).
+// Third state: the floating settings panel (palette + default view) together
+// with the card it belongs to. The panel is portaled to document.body, so the
+// clip is the union of both boxes rather than the card's own frame.
 const opened = await evaluate(`(() => {
 	const gear = document.querySelector('.thm_gear');
 	if (gear === null) return false;
@@ -135,7 +137,25 @@ const opened = await evaluate(`(() => {
 })()`);
 if (opened === true) {
 	await sleep(700);
-	await capture("settings", "settings panel");
+	const region = await evaluate(`(() => {
+		const panel = document.querySelector('.thm_panel');
+		const card = document.querySelector('.thm_card');
+		if (panel === null || card === null) return null;
+		const pr = panel.getBoundingClientRect();
+		const cr = card.getBoundingClientRect();
+		const x = Math.max(0, Math.min(pr.left, cr.left) - 12);
+		const y = Math.max(0, Math.min(pr.top, cr.top) - 12);
+		return {
+			x: Math.round(x),
+			y: Math.round(y),
+			width: Math.round(Math.min(1440 - x, Math.max(pr.right, cr.right) + 12 - x)),
+			height: Math.round(Math.max(pr.bottom, cr.bottom) + 12 - y)
+		};
+	})()`);
+	if (region === null) throw new Error("settings panel not found after opening it");
+	const shot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { ...region, scale: 2 } });
+	writeFileSync(new URL("../temp/shot-settings.png", import.meta.url), Buffer.from(shot.data, "base64"));
+	console.log("captured settings panel → temp/shot-settings.png");
 } else {
 	console.log("no ⚙ gear found; skipped the settings panel shot");
 }
