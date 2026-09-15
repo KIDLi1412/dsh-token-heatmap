@@ -13,6 +13,7 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 - `lib/index.js` — 服务端 half（cordis plugin，`inject: ["webServer","sessions","sessionPersistence","settings"]`）
   - `apply()`：注册官方 `session/event` 监听器实时折叠每个 usage 事件进缓存（不依赖 hero 屏挂载）；启动时一次性补折叠已存在 live 会话
   - `collectUsage()`：**主路径=请求时增量同步 live 会话 + 枚举 stored 会话补齐历史**（`readSessionEvents()` 双接口兼容：0.1.2 线的 `readFrom()` 与 0.1.3+ 的 `open()`/`handle.read()`；`listSnapshots()`/`list()` 的 `revision` 用于跳过未变更日志）
+  - **fork 切点**：`forkCutOf()`（live，`header.isSeeded === true` → `session.inheritedEventCount`）与 `forkCutOfEvents()`（stored，最后一个 `data.inherited === true` 的 `session/end-seed` 的 `seq + 1`），切点存在 per-session `state.skipUntil` 里，三条折叠路径（live 折叠 / `session/event` 监听 / stored 读取）统一从 `max(consumed, skipUntil)` 开始；切点新发现或不一致就 `resetFold()` 重折。**fork 子会话的前缀是父会话的 usage，父会话折叠时已计过**，从 0 折会双计（2026-09-14 实测 8.34 亿 → 13.15 亿）；`isSeeded=false` 的 resume 不是 fork，必须整份折
   - 缓存：`<DSH_HOME>/storages/token-heatmap-cache.json`（原子写，单飞锁 `withLock`）；测试用临时 `DSH_HOME`
   - 路由：`GET /api/token-heatmap/usage`、`GET|POST /api/token-heatmap/config`（loopback-only）
   - settings namespace：**`"token-heatmap"` 字面量**（0.1.2 起 `dsh-settings` 不再导出 `settingsNamespace()`）
@@ -36,6 +37,8 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
   - **hero 判断：`session.blank`（布尔，true=新会话）**；旧版用 `composerPhase === "blank"`——client 里已双兼容（`heroBlank`），改时别丢掉
   - **`sessionPersistence` 的 stored 会话读取接口换过两代**：0.1.2 线（`0.1.0-rc.8` … `0.1.2-rc.1`）是 `listSnapshots()` + `readFrom(id, fromSeq)`；**0.1.3-alpha.2 起改为 `list()` + `open(id,"read")`/`handle.read()`**（`readFrom`/`listSnapshots` 已移除，`list()` 的 snapshot 同样带 `revision`）。改这块必须两条都留（`readSessionEvents()`），且 `state.consumed` 存的是 **seq 不是 index**——只探测 `list()` 却调 `readFrom` 会让每个 stored 会话抛错并被吞掉，表现为热力图只剩进程内 live 的几天
   - `session/event` 监听器与 `collectUsage` 共用同一份内存缓存与 per-session `consumed` 游标，不要在其中一方重置状态而不重置另一方
+  - **fork 的切点也必须三条路径一致**：`state.skipUntil` 是 per-session 的 fork 切点，`apply()` 的 `session/event` 守卫、`collectUsage` 的 live 折叠、启动时的首次补折叠都读同一份；只改其中一条会让同一批 token 被计两次或少计
+  - **缓存格式版本**：per-session 折叠状态的字段变了（如 0.4.1 的 `skipUntil`）就必须 bump `CACHE_VERSION`，否则旧缓存里已双计的天数会留着且与新折叠口径混在一起
 - **settings 的两半各管什么（重要）**：Host 侧 `ctx.settings.register("token-heatmap", schema)` **必须保留**——官方 `settings` 服务的 `get`/`update`/`describe` 只对**已注册** namespace 生效，它就是 settings.yaml 的校验与持久化管道；client 侧的 `settings.plugin.item` 注册只是"设置页那张卡"，0.4.0 起已移除（配置改在卡片 ⚙ 面板里，见上）。别为了"删设置"把 Host 注册也删了
 - **DSH STORE 的 protectedDsh 信号**（客户端访问内置 UI/统计）是设计使然，README 已披露，保持现状
 
