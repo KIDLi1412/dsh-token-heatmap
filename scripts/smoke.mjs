@@ -277,8 +277,31 @@ check("month with no data fills the calendar at level 0", emptyMonth.weeks.flat(
 check("shiftMonthKey steps months", exports.shiftMonthKey("2026-08", -1) === "2026-07" && exports.shiftMonthKey("2026-08", 1) === "2026-09");
 check("shiftMonthKey crosses years", exports.shiftMonthKey("2026-01", -1) === "2025-12" && exports.shiftMonthKey("2026-12", 1) === "2027-01");
 check("shiftMonthKey is a no-op on junk", exports.shiftMonthKey("nope", 1) === "nope");
-// Display labels: zh uses "2026年8月", en uses "Aug 2026".
-check("monthLabelFull formats per locale", /^2026年8月$|^Aug 2026$/.test(exports.monthLabelFull("2026-08")), exports.monthLabelFull("2026-08"));
+// Display labels: zh uses "2026年8月", en uses "Aug 2026". The locale probe
+// reads `navigator.languages`, so drive both explicitly — CI runs an English
+// locale, where the zh-shaped template used to leak a "年" into the en label.
+const withNavigator = (languages, run) => {
+	const previous = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+	// Node exposes `navigator` as a getter-only global, so replace the whole
+	// property descriptor rather than assigning to it.
+	Object.defineProperty(globalThis, "navigator", {
+		configurable: true,
+		writable: true,
+		value: { languages, language: languages[0] }
+	});
+	try {
+		return run();
+	} finally {
+		if (previous === void 0) delete globalThis.navigator;
+		else Object.defineProperty(globalThis, "navigator", previous);
+	}
+};
+const zhLabels = withNavigator(["zh-CN"], () => ({ month: exports.monthLabelFull("2026-08"), date: exports.dateLabel("2026-08-13") }));
+const enLabels = withNavigator(["en-US"], () => ({ month: exports.monthLabelFull("2026-08"), date: exports.dateLabel("2026-08-13") }));
+check("monthLabelFull zh = 2026年8月", zhLabels.month === "2026年8月", zhLabels.month);
+check("monthLabelFull en = Aug 2026", enLabels.month === "Aug 2026", enLabels.month);
+check("dateLabel zh = 8月13日", zhLabels.date === "8月13日", zhLabels.date);
+check("dateLabel en = Aug 13", enLabels.date === "Aug 13", enLabels.date);
 
 // ---- client apply(): slot registrations ---------------------------------
 // The card owns its settings now, so the plugin must NOT claim the official
