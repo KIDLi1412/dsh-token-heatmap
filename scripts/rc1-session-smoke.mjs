@@ -152,7 +152,8 @@ try {
 		on: (name, handler) => { seListeners.push({ name, handler }); return () => {}; },
 		get: (n) => (n === "sessions" ? { list: () => [] } : void 0),
 		webServer: { register() {} },
-		settings: { register() {} },
+		// DSH 0.2.0 has no settings registration; the exported Config is the form.
+		settings: {},
 	});
 	const seListener = seListeners.find((e) => e.name === "session/event");
 	check("session/event listener registered", seListener !== void 0);

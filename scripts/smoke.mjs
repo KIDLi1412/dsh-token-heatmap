@@ -93,14 +93,16 @@ console.log("client.js");
 globalThis.window = {};
 let loaded = null;
 globalThis.window.__ModuleLoader__ = { load: (spec) => { loaded = spec; } };
-// react may live in the DSH profiles dir (local dev, USERPROFILE/homedir) or
-// in this repo's node_modules (CI). Try both so the smoke test runs anywhere.
+// react may live in the DSH profiles dir (local dev on a host that still ships
+// it in node_modules — 0.2.0 bundles React into the web frontend dist, so that
+// junction is dangling there) or in this repo's node_modules (CI installs it).
+// Try both so the smoke test runs anywhere.
 const reactCandidates = [
 	join(process.env.USERPROFILE ?? os.homedir(), ".dsh", "profiles", "node_modules", "react", "package.json"),
 	join(root, "node_modules", "react", "package.json")
 ].filter(existsSync);
 if (reactCandidates.length === 0) {
-	console.error("react not found (looked in DSH profiles and repo node_modules); run: npm install --no-save react@18.3.1");
+	console.error("react not found (looked in DSH profiles and repo node_modules); run: npm install --no-save --no-package-lock react@18.3.1 react-dom@18.3.1");
 	process.exit(1);
 }
 const requireFromProfile = createRequire(pathToFileURL(reactCandidates[0]));
@@ -322,17 +324,20 @@ check("dateLabel en = Aug 13", enLabels.date === "Aug 13", enLabels.date);
 
 // ---- client apply(): slot registrations ---------------------------------
 // The card owns its settings now, so the plugin must NOT claim the official
-// 设置 → 插件 → 插件配置 seat any more — while still binding the settings
-// namespace scope it reads and writes through.
+// 设置 → 插件 → 插件配置 seat any more — while still reaching its durable
+// values. DSH 0.2.0 moved those onto the plugin CONFIG FORM:
+// `ctx.configForms.get(entryId)`, keyed by the profile entry id our bundle row
+// declares. (Before 0.2.0 this was `ctx.settingsScope.bind({namespace})`; that
+// service is gone, and asking for it would leave the plugin waiting forever.)
 console.log("client apply()");
 const injectedSlots = [];
 const registeredSlots = [];
-let boundNamespace = null;
+const requestedForms = [];
 const applyContext = {
-	settingsScope: {
-		bind: (options) => {
-			boundNamespace = options.namespace;
-			return { getSnapshot: () => ({ status: "loading" }), subscribe: () => () => {}, set: async () => {}, load: async () => {} };
+	configForms: {
+		get: (entryId) => {
+			requestedForms.push(entryId);
+			return { getSnapshot: () => ({ status: "loading" }), subscribe: () => () => {}, set: async () => {} };
 		}
 	},
 	locale: { register: () => () => {} },
@@ -346,7 +351,8 @@ exports.apply(applyContext);
 check("apply registers the input-dock entry only", injectedSlots.length === 1 && injectedSlots[0] === "conversation.input.dock" && registeredSlots.length === 1, JSON.stringify({ injectedSlots, registeredSlots }));
 check("apply does NOT register into settings.plugin.item", registeredSlots.every((options) => options.name !== "settings.plugin.item"), JSON.stringify(registeredSlots));
 check("dock registration keeps id/locale/order", registeredSlots[0].id === "token-heatmap" && registeredSlots[0].locale === "tokenHeatmap" && registeredSlots[0].order === 10, JSON.stringify(registeredSlots[0]));
-check("settings scope still bound to token-heatmap", boundNamespace === "token-heatmap", String(boundNamespace));
+check("config form keyed by the profile entry id", requestedForms.length === 1 && requestedForms[0] === "token-heatmap", JSON.stringify(requestedForms));
+check("client injects the 0.2.0 services", JSON.stringify(exports.inject) === JSON.stringify(["slots", "locale", "configForms"]), JSON.stringify(exports.inject));
 
 // ----------------------------------------------------------- server config route
 console.log("server config route");
@@ -357,32 +363,29 @@ const dshHome = mkdtempSync(join(tmpdir(), "thm-config-"));
 process.env.DSH_HOME = dshHome;
 const server = await import(pathToFileURL(join(root, "lib/index.js")).href);
 const routes = [];
-// Minimal in-memory settings service mirroring the provider contract the
-// plugin relies on: register/get/describe/update, with schema resolution.
-const settingsSections = new Map();
+// Minimal in-memory settings service mirroring the DSH 0.2.0 provider contract
+// the plugin relies on — describe/update over a per-entry user layer, resolved
+// through the plugin's own exported Config. There is no `register` and no `get`:
+// the exported Config IS the form, keyed by the profile entry id.
+const settingsSections = new Map([[server.SETTINGS_NAMESPACE, { user: void 0 }]]);
+const resolveSection = (entry) => server.Config({ ...(entry.user ?? {}) });
 const serverCtx = {
-	logger: { warn: () => {} },
+	logger: { warn: () => {}, info: () => {} },
 	effect: (fn) => fn(),
 	webServer: { register: (route) => routes.push(route) },
 	settings: {
-		register: (ns, schema) => { settingsSections.set(ns, { schema, user: void 0 }); },
-		get: (ns) => {
-			const entry = settingsSections.get(ns);
-			if (entry === void 0) return void 0;
-			return entry.schema({ ...(entry.user ?? {}) });
-		},
 		describe: () => [...settingsSections.entries()].map(([ns, entry]) => ({
 			ns,
 			schema: null,
-			value: entry.schema({ ...(entry.user ?? {}) }),
+			value: resolveSection(entry),
 			revision: 0,
 			user: entry.user
 		})),
 		update: async (ns, patch) => {
 			const entry = settingsSections.get(ns);
-			if (entry === void 0) throw new Error(`unregistered namespace ${ns}`);
+			if (entry === void 0) throw new Error(`unknown entry ${ns}`);
 			const next = { ...(entry.user ?? {}), ...patch };
-			entry.schema(next); // validate: throws on malformed writes
+			server.Config(next); // validate: throws on malformed writes
 			entry.user = next;
 		}
 	}
