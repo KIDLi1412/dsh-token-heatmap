@@ -1,6 +1,6 @@
 {
   "name": "@kidli1412/dsh-token-heatmap",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "DSH web plugin: GitHub-style daily token-usage heatmap on the new-session screen with switchable year/month views and six color schemes. The card configures itself through a floating ⚙ panel (palette + default view) — no DSH settings card — and shows today / this-month / all-time totals.",
   "type": "module",
   "main": "lib/index.js",
@@ -63,7 +63,7 @@
   },
   "scripts": {
     "check": "node --check lib/usage.js && node --check lib/config.js && node --check lib/index.js && node --check lib/client.js",
-    "test": "node scripts/smoke.mjs && node scripts/settings-smoke.mjs && node scripts/rc1-session-smoke.mjs",
+    "test": "node scripts/smoke.mjs && node scripts/settings-smoke.mjs && node scripts/rc1-session-smoke.mjs && node scripts/cache-reload-smoke.mjs",
     "prepublishOnly": "npm run check && npm test"
   },
   "license": "MIT",
