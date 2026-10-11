@@ -366,24 +366,49 @@ const routes = [];
 // Minimal in-memory settings service mirroring the DSH 0.2.0 provider contract
 // the plugin relies on — describe/update over a per-entry user layer, resolved
 // through the plugin's own exported Config. There is no `register` and no `get`:
-// the exported Config IS the form, keyed by the profile entry id.
+// the exported Config IS the form, keyed by the profile entry id. Two halves of
+// that contract are load-bearing and modelled exactly, so that dropping a
+// `.volatile()` fails here instead of in the browser:
+//   * describe() serves PLAIN values (DSH unwraps the cosmokit references a
+//     volatile field parses to) and drops any entry whose Config has no
+//     volatile field — an unserved entry never reaches `configForms.get()`;
+//   * update() refuses such an entry, and every path outside the volatile
+//     subtree, with DSH's own error messages.
+const VOLATILE_WRITE = Symbol.for("cosmokit.volatile.write");
+const isVolatileRef = (value) => typeof value === "object" && value !== null && VOLATILE_WRITE in value;
+const plain = (value) => {
+	if (isVolatileRef(value)) return plain(value.get());
+	if (Array.isArray(value)) return value.map(plain);
+	if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, plain(child)]));
+	return value;
+};
+const hasVolatileField = (schema) => schema.meta.volatile === true
+	|| (schema.type === "object" && Object.values(schema.dict ?? {}).some((child) => hasVolatileField(child)));
+const isVolatilePath = (schema, path) => {
+	if (schema.meta.volatile === true) return true;
+	const [key, ...rest] = path;
+	const child = key === undefined ? void 0 : schema.dict?.[key];
+	return child !== void 0 && isVolatilePath(child, rest);
+};
 const settingsSections = new Map([[server.SETTINGS_NAMESPACE, { user: void 0 }]]);
-const resolveSection = (entry) => server.Config({ ...(entry.user ?? {}) });
+const resolveSection = (entry) => plain(server.Config({ ...(entry.user ?? {}) }));
 const serverCtx = {
 	logger: { warn: () => {}, info: () => {} },
 	effect: (fn) => fn(),
 	webServer: { register: (route) => routes.push(route) },
 	settings: {
-		describe: () => [...settingsSections.entries()].map(([ns, entry]) => ({
+		describe: () => [...settingsSections.entries()].flatMap(([ns, entry]) => hasVolatileField(server.Config) ? [{
 			ns,
 			schema: null,
 			value: resolveSection(entry),
 			revision: 0,
 			user: entry.user
-		})),
+		}] : []),
 		update: async (ns, patch) => {
 			const entry = settingsSections.get(ns);
 			if (entry === void 0) throw new Error(`unknown entry ${ns}`);
+			if (!hasVolatileField(server.Config)) throw new Error(`Plugin entry "${ns}" has no volatile fields`);
+			for (const path of Object.keys(patch)) if (!isVolatilePath(server.Config, [path])) throw new Error(`Config field "${path}" is not volatile`);
 			const next = { ...(entry.user ?? {}), ...patch };
 			server.Config(next); // validate: throws on malformed writes
 			entry.user = next;
