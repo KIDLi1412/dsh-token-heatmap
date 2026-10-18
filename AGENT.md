@@ -30,16 +30,22 @@ DSH（DeepSeek Harness）web 插件：新会话（hero）屏上的 GitHub 风格
 
 ## 兼容性（重要，改代码前必读）
 
-- 适配 **DSH 0.2.0 版本线**（本机 `0.2.0-rc.2`），`dsh.compatibility.dshReleases` 精确逐版本声明（DSH STORE 契约；范围声明无效）
+- 适配 **DSH 0.2.0 / 0.2.1 两条版本线**（本机 `0.2.1-rc.2`，已逐项复核），`dsh.compatibility.dshReleases` 精确逐版本声明（DSH STORE 契约；范围声明无效）——`0.2.0-rc.2` 与 `0.2.1-rc.2` 都标 `compatible`
 - `dsh.client.inject` 必须是 **0.2.0 客户端模块图存在**的包（`dsh-api-remotes` / `dsh-client-connection` / `dsh-client-locale` / `dsh-client-ui-conversation` / `dsh-client-ui-settings`）；客户端 `inject` 服务是 `["slots","locale","configForms"]`
-- `engines.dsh: ^0.2.0-rc.2`；`peerDependencies` 声明 lockstep `@deepseek-ai/dsh-*` 宿主包（dsh-market 据此显示"宿主要求"），并全部标 `peerDependenciesMeta.optional`——它们由 DSH 运行时提供、本插件从不 import，标 optional 后 npm/pnpm 不再把它们装进依赖树（0.2.0 起这些包彼此还有 peer，沿用自动安装会解析冲突）
-- **宿主兼容闸门会拒绝挂载，不只是警告**：`dsh-app-boot` 的 `evaluatePluginCompatibility()` 逐条比对 `dsh*` peer 与运行时版本（`semver.satisfies(..., { includePrerelease: true })`），不符时 `dsh plugin add` 直接拒绝安装、已装的 bundle 在 `plugin_manager list_bundles` 里显示 `incompatible-version` + `rows: []`（插件完全没挂载）。改 peer 范围前先按 dsh-session-cost 的 `temp/compat-preflight.mjs` 做预检
+- `engines.dsh: ^0.2.0-rc.2 || ^0.2.1-rc.2`；`peerDependencies` 声明 lockstep `@deepseek-ai/dsh-*` 宿主包（dsh-market 据此显示"宿主要求"），并全部标 `peerDependenciesMeta.optional`——它们由 DSH 运行时提供、本插件从不 import，标 optional 后 npm/pnpm 不再把它们装进依赖树（0.2.0 起这些包彼此还有 peer，沿用自动安装会解析冲突）。每条 `@deepseek-ai/dsh-*` 声明同样写 `^0.2.0-rc.2 || ^0.2.1-rc.2`：范围在语义上等价于 `^0.2.0-rc.2`，但**显式列出支持的版本线**才是 dsh-market / 闸门要读的那份"声明"（0.2.1-rc.1 起兼容性判定优先看 `engines.dsh`）
+- **宿主兼容闸门会拒绝挂载，不只是警告**：`dsh-app-boot` 的 `evaluatePluginCompatibility()` 比对声明与运行时版本（`semver.satisfies(..., { includePrerelease: true })`），不符时 `dsh plugin add` 直接拒绝安装、已装的 bundle 在 `plugin_manager list_bundles` 里显示 `incompatible-version` + `rows: []`（插件完全没挂载）。**0.2.1 起判定顺序变了**：声明了 `engines.dsh` 就**只**看它（peer 全部忽略），没声明才逐条比对 `@deepseek-ai/dsh*` peer（见下"0.2.1 备忘"）。改范围前后都用本仓库 `temp/compat-preflight.mjs` 预检——它自己扫 pnpm store 找 `dsh-app-boot`，不写死随更新变化的路径哈希
 - **0.2.0 破坏性变更备忘**：
   - **设置模型**：插件自建 namespace + `settings.register(ns, schema)` → **导出 `Config`（schemastery）**，以 profile entry id 为键的表单；Host 读别人用 `settings.describe()`（**`settings.get(ns)` 已删除**，写成 `?.` 会静默回默认值）、写自己用 `settings.update(ns, patch)`；浏览器端 `ctx.configForms.get(entryId)`（`getSnapshot`/`subscribe`/`set`/`unset`/`mutate`），`settingsScope` 已删除
   - **`settings.yaml` 被取消**：DSH 在启动后把旧文档整体导入 profile 并改名为 `settings.yaml.imported`（按 section→entry id），导入失败的 section 只留在重命名后的文件里——插件被拒挂载时值不会被自动带走（`rescueRemovedSettingsDocument()` 就是为它写的）
   - **整站 cookie 鉴权**：0.2.0 给 `dsh web` 的每个请求加了签名 cookie（无 cookie → `401 dsh web authentication required`）。插件端点的 loopback fence 保留；用 node 直接探端点会拿到 401，这**不代表插件没挂载**
   - `session.seq` / `session.eventAt(seq)`、`sessions.list()`、`sessionPersistence` 的 `list()` + `open()`、`webServer.register({kind,path,handler})` 在 0.2.0 均未变（已逐项核对 0.2.0-rc.2）
   - 原生弹层皮肤：stat dialog 改用 `border-radius:var(--dsw-radius-lg)` + `backdrop-filter:var(--dsw-menu-backdrop-filter)`，⚙ 面板已跟（读 token 时带 fallback）
+- **0.2.1（2026-10-18 复核，`0.2.1-rc.2`）**：本插件**不需要改代码**，只补了声明；逐项结论：
+  - **兼容性判定优先 `engines.dsh`**（0.2.1-rc.1 发布说明的"其他变更"）：声明了 `engines.dsh` 就只按它判，peer 不再参与——所以 `engines.dsh` 必须自己覆盖所有支持的版本线（现在是 `^0.2.0-rc.2 || ^0.2.1-rc.2`），别只改 peer 忘了它
+  - 0.2.1 把**输入区统计扩展拆成 `activity` 与 `usage` 两个入口**（替换旧 `stats` 整行的插件要改注册 ID）——本插件注册的是 `conversation.input.dock`（0.2.1 仍在 `dsh-client-ui-conversation` 里提供），与这条变更无关
+  - 0.2.1 移除运行时 invariant 插件与各包 `./invariant` 导出、子路径插件不再读独立 `package.json`（显示文本/图标改走子路径导出）：本插件都不涉及（不 import `./invariant`，也没有独立展示清单）
+  - 运行时相关契约逐项复核通过：`webServer.register`、`settings.describe()` / `settings.update()`、`sessions.list()` + `session.seq`/`eventAt(seq)`/`inheritedEventCount`/`header.isSeeded`、`sessionPersistence.list()` + `open(id,"read")` + `handle.read()` 都在；5 个客户端注入包在 0.2.1 仍声明 `dsh.client`（web），前端模块表仍提供 `react` / `react/jsx-runtime` / `react-dom` / `react-dom/client`；`session.blank`（hero 判断）仍在 `dsh-api-session-controller`；`configForms` 与 `conversation.input.dock` 仍在
+  - 0.2.1 还修了"启停插件时其他插件的样式被移除、需刷新才恢复"（用 `data-plugin-css` 通道的插件受益）；另新增了若干扩展位（用户消息、新会话页、模型选择器等），本插件暂未使用
 - **0.1.x 破坏性变更备忘（历史，仍然有效——双兼容代码还在）**：
   - live session 无 `.events` 数组 → `session.seq` + `session.eventAt(seq)`（0 基，官方 `dsh-token-meter` 读法）
   - **hero 判断：`session.blank`（布尔，true=新会话）**；旧版用 `composerPhase === "blank"`——client 里已双兼容（`heroBlank`），改时别丢掉
